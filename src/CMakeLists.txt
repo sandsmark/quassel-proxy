@@ -19,7 +19,11 @@ if(WANT_QTCLIENT OR WANT_MONO)
 #    set(LINK_KDE mod_kdeui)
 #  endif(HAVE_KDE)
 endif(WANT_QTCLIENT OR WANT_MONO)
-
+if(WANT_PROXY AND PROTOBUF_FOUND)
+  add_subdirectory(proxy)
+  include_directories(BEFORE proxy)
+  include_directories(BEFORE client)
+endif(WANT_PROXY  AND PROTOBUF_FOUND)
 include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}) # for version.gen
 
 # Add resources. Can't be done in other subdirs apparently.
@@ -27,6 +31,7 @@ include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}) # for version.gen
 qt4_add_resources(CLIENT_DEPS ${CLIENT_RCS})
 qt4_add_resources(CORE_DEPS ${CORE_RCS})
 qt4_add_resources(COMMON_DEPS ${COMMON_RCS})
+qt4_add_resources(PROXY_DEPS ${CLIENT_RCS})
 
 if(WANT_CORE)
   setup_qt4_variables(NETWORK SCRIPT SQL)
@@ -51,6 +56,18 @@ if(WANT_QTCLIENT)
                                       ${QUASSEL_QT_LIBRARIES} ${QUASSEL_KDE_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${PHONON_LIBS})
   install(TARGETS quasselclient RUNTIME DESTINATION ${BIN_INSTALL_DIR})
 endif(WANT_QTCLIENT)
+
+if(WANT_PROXY)#proxy
+  setup_qt4_variables(NETWORK GUI)#some parts of client depends on qtgui
+  add_executable(quasselproxy WIN32 common/main.cpp ${COMMON_DEPS} ${PROXY_DEPS})
+  add_dependencies(quasselproxy i18n genversion_run)
+  set_target_properties(quasselproxy PROPERTIES
+                                      COMPILE_FLAGS "-DQT_NETWORK_LIB -DBUILD_PROXY"
+                                      OUTPUT_NAME ../quasselproxy)
+  target_link_libraries(quasselproxy mod_proxy mod_client mod_common
+                                      ${QUASSEL_QT_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${PROTOBUF_LIBRARY} )
+  install(TARGETS quasselproxy RUNTIME DESTINATION ${BIN_INSTALL_DIR})
+endif(WANT_PROXY)
 
 if(WANT_MONO)
   setup_qt4_variables(${LINK_DBUS} GUI NETWORK SCRIPT SQL ${LINK_WEBKIT})

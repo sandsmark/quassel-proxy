@@ -34,6 +34,7 @@ include(QuasselMacros)
 option(WANT_CORE     "Build the core (server) binary"           ON)
 option(WANT_QTCLIENT "Build the Qt4 GUI client binary"          ON)
 option(WANT_MONO     "Build the monolithic (all-in-one) binary" ON)
+option(WANT_PROXY    "Build the proxy binary for proxying mobile clients" OFF)
 
 option(WITH_OPENSSL  "Enable OpenSSL support if present on the system"	ON)
 option(WITH_DBUS     "Enable D-Bus support if present on the system"	ON)
@@ -261,6 +262,11 @@ if(STATIC)
   link_directories(${QT_PLUGINS_DIR}/imageformats)
   link_libraries(qjpeg qgif)
 endif(STATIC)
+
+if(WANT_PROXY)
+  #include(FindProtobuf)
+  FIND_PACKAGE(Protobuf)
+endif(WANT_PROXY)
 
 # We need to create a version.gen
 # For this, we create our genversion binary and make sure it is run every time.

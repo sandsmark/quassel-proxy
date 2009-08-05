@@ -19,14 +19,16 @@
  ***************************************************************************/
 
 #include <cstdlib>
+#define MAIN_CPP
 
 #ifdef BUILD_CORE
 #  include "coreapplication.h"
 #elif defined BUILD_QTUI
 #  include "qtuiapplication.h"
+#elif defined BUILD_PROXY
+#  include "proxyapplication.h"
 #elif defined BUILD_MONO
 #  include "monoapplication.h"
-
 #else
 #error "Something is wrong - you need to #define a build mode!"
 #endif
@@ -92,12 +94,12 @@ int main(int argc, char **argv) {
 #endif
   cliParser->addOption("datadir <path>", 0, "DEPRECATED - Use --configdir instead");
 
-#ifndef BUILD_CORE
+#if defined(BUILD_QTUI) || defined(BUILD_PROXY) || defined(BUILD_MONO)
   // put client-only arguments here
   cliParser->addSwitch("debugbufferswitches", 0, "Enables debugging for bufferswitches");
   cliParser->addSwitch("debugmodel", 0, "Enables debugging for models");
 #endif
-#ifndef BUILD_QTUI
+#if defined(BUILD_CORE) || defined(BUILD_MONO)
   // put core-only arguments here
   cliParser->addOption("listen <address>[,<address[,...]]>", 0, "The address(es) quasselcore will listen on", "0.0.0.0,::");
   cliParser->addOption("port <port>",'p', "The port quasselcore will listen at", QString("4242"));
@@ -120,6 +122,8 @@ int main(int argc, char **argv) {
     QtUiApplication app(argc, argv);
 #  elif defined BUILD_MONO
     MonolithicApplication app(argc, argv);
+#  elif defined BUILD_PROXY
+    ProxyApplication app(argc, argv);
 #  endif
 
 #ifndef HAVE_KDE

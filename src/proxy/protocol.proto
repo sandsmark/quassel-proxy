@@ -1,0 +1,204 @@
+option java_package="com.lekebilen.quasselproxy";
+package quasselproxy;
+message Packet {
+  repeated Message messages=2;
+  repeated IrcUser users=3;
+  repeated Buffer buffers=4;
+  repeated Network networks=5;
+  repeated IrcChannel channels=6;
+  repeated Identity identities=7;
+  optional SessionSetup setup=8;
+  optional StatusInfo statusInfo=9;
+}
+message StatusInfo{
+  optional uint32 activbid=1;
+  optional bool paused=2 [default=false];
+  optional bool suspend=3 [default=false];
+  optional string errormsg=10;
+}
+message SessionSetup{
+  optional string username=1;
+  optional string password=2;
+  optional uint32 sessionid=3;
+  optional bool sendTrivialReasons=4; //i.e don't send join/part but send kick/ban reasons.
+  optional uint32 keepAlive=5;//minutes to keep alive session after disconnect.
+  optional bool loggedin=6;
+  optional bool loginFail=7;
+  optional uint64 timebase=8;
+  optional string host=9;//not used for communication
+  optional uint32 port=10;//not used for communication
+}
+message SessionStatusChanged{
+  optional uint32 activeBuffer=1;
+}
+
+message Message{
+  optional uint32 msgid=1;//message id
+  optional uint32 nid=2;//network id - if missing get from buffer with bid
+  optional uint32 uid=3;//sender user id (not unique accross sessions/networks)
+  optional uint32 bid=4;//buffer id - if missing use active buffer
+  optional sint64 timestamp=5;
+  
+  optional string contents=6;
+  optional uint32 type=7;
+  optional uint32 flag=8;
+  //todo move away from bools and back to flags at least on message
+//  optional bool type_plain=40  [default=true];
+//  optional bool type_notice=41  [default=false];
+//  optional bool type_action=42  [default=false];
+//  optional bool type_nick=43  [default=false];
+//  optional bool type_mode=44  [default=false];
+//  optional bool type_join=45  [default=false];
+//  optional bool type_part=46  [default=false];
+//  optional bool type_quit=47  [default=false];
+//  optional bool type_kick=48  [default=false];
+//  optional bool type_kill=49  [default=false];
+//  optional bool type_server=50  [default=false];
+//  optional bool type_info=51  [default=false];
+//  optional bool type_error=52  [default=false];
+//  optional bool type_daychange=53  [default=false];
+
+//  optional bool flag_self=60  [default=false];
+//  optional bool flag_highlight=61  [default=false];
+//  optional bool flag_redirected=62  [default=false];
+//  optional bool flag_servermsg=63  [default=false];
+//  optional bool flag_backlog=64  [default=false];
+}
+
+
+message IrcUser{
+  optional uint32 uid=1;//user id (only garantied unique in one session and in one network)
+  optional uint32 nid=2; 
+  optional string nick=3;
+  optional string user=4;
+  optional string host=5;
+  optional string realName=6;
+  optional string awayMessage=7;//send this?
+  optional bool away=8;
+  optional string server=9;
+  optional fixed32 loginTime=10;
+  optional string operator=11;
+  optional string suserHost=12;
+  repeated uint32 channels=13;//refers to channel id's
+  optional string userModes=14;
+  repeated uint32 joinedChannels=15;//refers to channel id's
+  repeated uint32 partedChannels=16;//refers to channel id's
+}
+message IrcChannel{
+  optional uint32 cid=1;//channel id (only garantied unique in one session and in one network)
+  optional uint32 nid=2;
+  optional string name=3;
+  optional string topic=4;
+  optional string password=5;
+  message UserMode{
+    required uint32 uid=1;
+    optional string mode=2;
+  }
+  repeated UserMode users=6;
+  repeated UserMode usersJoined=7;
+  repeated UserMode usersParted=8;
+
+
+  //Mode stuf, mirrors internal quassel stuf, not understood, used or implemented yet
+  message AMode{
+    required bytes mode=1;
+    repeated string value=2;
+  }
+  message BCMode{
+    required bytes mode=1;
+    optional string value=2;
+  }
+  repeated AMode amodes=10;
+  repeated BCMode bmodes=11;
+  repeated BCMode cmodes=12;
+  repeated bytes dmodes=13;
+}
+message Buffer{
+  optional uint32 bid=1;
+  optional uint32 nid=2;
+  optional uint32 gid=3;
+  optional string name=4;
+
+  optional uint32 queryUser=5;//reference to ircuser on this network
+  optional uint32 channel=6;//reference to irchannel on this network
+
+  optional uint32 firstmsg=7;
+  optional uint32 lastmsg=8;
+
+  optional bool update_bools=19;
+
+  optional bool type_invalid=20;
+  optional bool type_status=21;
+  optional bool type_channel=22;
+  optional bool type_query=23;
+  optional bool type_group=24;
+  
+  optional bool activity_none=30;
+  optional bool activity_other=31;
+  optional bool activity_newMessage=32;
+  optional bool activity_highlight=34;
+  extensions 100 to 199;
+}
+message Network{
+  message Server{//server info is not sent by default
+    optional string host=1;
+    optional uint32 port=2;
+    optional string password=3;
+    optional bool useSsl=4;
+    optional uint32 sslversion=5;
+    optional bool useProxy=6;
+    optional uint32 proxyType=7;
+    optional string proxyHost=8;
+    optional string proxyUser=9;
+    optional string proxyPassword=11;
+  }
+  optional uint32 nid=1;
+  optional string name=2;
+  optional uint32 idid=3;
+  repeated Server servers=4;
+  optional bool useRandomServer=5;
+  repeated string perform=6;
+
+  optional bool useAutoIdentify=7;
+  optional string autoIdentifyService=8;
+  optional string AutoIdentifyPassword=9;
+  
+  optional bool useAutoReconnect=10;
+  optional uint32 autoReconnectInterval=11;
+  optional bool unlimitedReconnectRetries=12;
+  optional bool rejoinChannels=13 [default=true];
+  enum ConnectionState{
+    Disconnected=1;
+    Connecting=2;
+    Initializing=3;
+    Initialized=4;
+    Reconnecting=5;
+    Disconnecting=6;
+  }
+
+  optional ConnectionState connectionstate=14;
+  enum ChanMode{
+    A_CHANMODE=1;
+    B_CHANMODE=2;
+    C_CHANMODE=3;
+    D_CHANMODE=4;
+  }
+  optional ChanMode chanmode=15;
+}
+message Identity{
+  optional uint32 idid=1;
+  optional string identityName=2;
+  optional string realName=3;
+  repeated string nicks=4;
+  optional string awayNick=5;
+  optional bool awayNickEnabled=6;
+  optional string awayReason=7;
+  optional bool awayReasonEnabled=8;
+  optional bool detatchAwayEnabled=9;
+  optional string detatchAwayReason=10;
+  optional bool detatchAwayReasonEnabled=11;
+  optional string ident=12;
+  optional string kickReason=13;
+  optional string partReason=14;
+  optional string quitReason=15;
+}
