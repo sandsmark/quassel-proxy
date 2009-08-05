@@ -170,7 +170,8 @@ void Proxy::syncComplete(){
   quasselproxy::Packet resp;
   resp.mutable_setup()->set_loggedin(true);
   resp.mutable_setup()->set_sessionid(setup.sessionid());
-  resp.mutable_setup()->set_timebase(QDateTime().toTime_t());
+  resp.mutable_setup()->set_timebase(QDateTime::currentDateTime().toTime_t());
+  timebase=resp.setup().timebase();
   foreach(Identity *id,identities.values()){
       convertIdentity(id,resp.add_identities());
   }
