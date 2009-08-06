@@ -8,13 +8,16 @@
 #include "backlogrequester.h"
 #include "protocol.pb.h"
 #include "prototools.h"
+#include "proxyapplication.h"
+#include <cstdlib>
 #include <QDateTime>
 #ifndef min
 #define min(a,b) (((a)<(b))?(a):(b))
 #endif
 #define MAX_IDLE_TIME 60
 void getDiff(const google::protobuf::Message *m1,const google::protobuf::Message *m2,google::protobuf::Message *mt);
-Proxy::Proxy(QTcpSocket *client,int sid){
+Proxy::Proxy(QTcpSocket *client,ProxyApplication *app){
+    this->app=app;
     conn=new ConnectionManager();
     back=new BacklogRequester();
     this->client=client;
@@ -27,11 +30,12 @@ Proxy::Proxy(QTcpSocket *client,int sid){
     clientPause=false;
     clientDisconnected=false;
     syncronizing=false;
+    authenticatedWithCore=false;
     lastActivity=QDateTime::currentDateTime();
     activityChecker.setInterval(5000);
     connect(&activityChecker,SIGNAL(timeout()),this,SLOT(checkActivity()));
     activityChecker.start();
-    setup.set_sessionid(sid);
+    //setup.set_sessionid(sid);
 }
 Proxy::~Proxy(){
     activityChecker.stop();
@@ -129,6 +133,7 @@ void Proxy::netsyncComplete(){
     }
 }
 void Proxy::syncComplete(){
+    authenticatedWithCore=true;
    /*foreach(BufferInfo binfo,bufferInfos.values()){
         if(binfo.type()==BufferInfo::ChannelBuffer){
             IrcChannel *chan=networks.value(binfo.networkId())->ircChannel(binfo.bufferName());
@@ -551,24 +556,55 @@ void Proxy::clientHasData(){
 }
 void Proxy::packetRecievedFromClient(quasselproxy::Packet pkg){
     updateActivity();
-    if(pkg.has_setup()){
+    if(pkg.has_setup()&&setup.sessionid()==0){//not specified session yet
         quint32 oldsid=setup.sessionid();
-        //pkg.setup().sessionid()!=oldsid && pkg.setup().sessionid()!=0
-        if(pkg.setup().has_sessionid()){//handle different sid's
-            switchSid(pkg);//ask manager to switch session or disconnect
-            return;//return as we are deleted now
-        }else{//correct sid - start connecting etc.
+        Proxy *usersession=app->getSession(fromStdStringUtf8(pkg.setup().username()));
+        bool newsession=false;
+        if(usersession!=NULL){//existing session found
+            if(usersession->hasClient()){//it is connected
+                //commit suicide
+                quasselproxy::Packet spkg;
+                spkg.mutable_statusinfo()->set_errormsg("A session for this user is allready connected");
+                sendPacket(spkg);
+                disconnect();
+                return;
+            }
+            if(usersession->validateCreditals(pkg.setup())){//currently ok to connect
+                newsession=false;
+            }else{
+                //commit suicide
+                quasselproxy::Packet spkg;
+                spkg.mutable_statusinfo()->set_errormsg("Wrong username or password");
+                sendPacket(spkg);
+                disconnect();
+                return;
+            }
+            if(usersession->getSid()!=pkg.setup().sessionid()){//different session id's
+                //remove the old one and continue with this
+                usersession->disconnect();
+                //app->removeSession(usersession);//done in disconnect
+                newsession=false;
+            }
+        }else{
+            newsession=true;
+        }
+        if(newsession){//no session yet
+            //new session - start connecting etc.
+            app->registerSession(this,pkg);
             setup=pkg.setup();
-            setup.set_sessionid(oldsid);
+            setup.set_sessionid(rand());
             init();
+        }else{//perform handover and committ sucide
+            activityChecker.stop();
+            usersession->giveClientSocket(takeClientSocket());
+            deleteLater();
+            return;
         }
     }
     if(pkg.has_statusinfo()){
-        if(pkg.statusinfo().has_suspend() && pkg.statusinfo().suspend()==true){
-            clientDisconnected=true;
-            client->disconnectFromHost();
-            client->close();
-            client=NULL;
+        if(pkg.statusinfo().has_stopsession() && pkg.statusinfo().stopsession()==true){
+            //clientDisconnected=true;
+            disconnect();
             return;
         }else if(pkg.statusinfo().has_paused() && pkg.statusinfo().paused()==true){
             clientPause=true;
@@ -702,6 +738,7 @@ void Proxy::sendPacket(quasselproxy::Packet pkg){
             printf("SNDPKG:%d,%d,%d\n",len,sz[0],sz[1]);
     }
     client->write(serializeToByteArray(&pkg));
+    client->waitForBytesWritten(50);
 }
 void getDiff(const google::protobuf::Message *m1,const google::protobuf::Message *m2,google::protobuf::Message *mt){
     const google::protobuf::Descriptor *d1=m1->GetDescriptor();
@@ -731,6 +768,9 @@ void Proxy::setSid(int sid){
 int Proxy::getSid(){
     return setup.sessionid();
 }
+QString Proxy::getUsername(){
+    return fromStdStringUtf8(setup.username());
+}
 void Proxy::disconnect(){//Disconnect and destroy this session
     activityChecker.stop();
     if(client!=NULL && client->isOpen()){
@@ -742,8 +782,10 @@ void Proxy::disconnect(){//Disconnect and destroy this session
 
         delete(client);
         client=NULL;
+    }else{
+        conn->disconnectFromCore();
     }
-    emit removeSession();
+    app->removeSession(this);
 }
 void Proxy::updateActivity(){
     lastActivity=QDateTime::currentDateTime();
@@ -751,7 +793,8 @@ void Proxy::updateActivity(){
 void Proxy::checkActivity(){
     if(!clientDisconnected && client!=NULL && client->isOpen()){
         if(lastActivity.secsTo(QDateTime::currentDateTime())>MAX_IDLE_TIME){
-            //disconnect();
+            if(!authenticatedWithCore)//remove unconnected cores so to minimize denial of service
+                disconnect();
             printf("Warning: Would disconnect here\n");
         }
     }
@@ -780,9 +823,18 @@ void Proxy::giveClientSocket(QTcpSocket *sock){
     connect(sock,SIGNAL(disconnected()),this,SLOT(socketDisconnected()));
     client=sock;
     clientDisconnected=false;
+    //send session info
+    printf("Send package about takeover");
+    quasselproxy::Packet resp;
+    resp.mutable_setup()->set_loggedin(true);
+    resp.mutable_setup()->set_sessionid(setup.sessionid());
+    sendPacket(resp);
 }
 void Proxy::socketDisconnected(){
-    if(!clientDisconnected){
+    clientDisconnected=true;
+    client=NULL;
+    /*if(!clientDisconnected){
         disconnect();//disconnect from core as the socket was disconnected w/o asking for suspending session
-    }
+    }*/
 }
+

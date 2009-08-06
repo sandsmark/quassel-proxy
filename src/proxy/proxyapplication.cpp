@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "proxyapplication.h"
+#include "prototools.h"
 
 #include <QStringList>
 #include <QTcpServer>
@@ -98,57 +99,23 @@ void ProxyApplication::newConnection (){
     if(server->hasPendingConnections()){
         QTcpSocket *nextsock;
         while((nextsock=server->nextPendingConnection())!=NULL){
-            Proxy *p = new Proxy(nextsock,nextSid);
+            Proxy *p = new Proxy(nextsock,this);
             //p->setSid(nextSid);
-            connect(p,SIGNAL(removeSession()),this,SLOT(removeSession()));
-            connect(p,SIGNAL(switchSid(quasselproxy::Packet)),this,SLOT(switchSid(quasselproxy::Packet)));
-            proxies.insert(nextSid,p);
-            nextSid++;
+            //proxies.insert(QString("Randusr%1").arg(nextSid),p);
+            //nextSid++;
         }
     }
 }
 
 ProxyApplication::~ProxyApplication() {
 }
-void ProxyApplication::removeSession(){
-    Proxy *snd=qobject_cast<Proxy*>(sender());
-    proxies.remove(snd->getSid());
-    delete(snd);
+void ProxyApplication::removeSession(Proxy *snd){
+    proxies.remove(snd->getUsername());
+    snd->deleteLater();
 }
-void ProxyApplication::switchSid(quasselproxy::Packet pkg){
-    Proxy *snd=qobject_cast<Proxy*>(sender());
-    Proxy *stored;
-    bool succeeded=false;
-    //if(proxies.contains(sid))
-    proxies.remove(snd->getSid());//remove the old proxy
-    if(proxies.contains(pkg.setup().sessionid())){//resume session
-        stored=proxies.value(pkg.setup().sessionid());
-        if(!stored->hasClient()){
-            if(stored->validateCreditals(pkg.setup())){//ok connect session
-                stored->giveClientSocket(snd->takeClientSocket());
-                printf("Takeover complete\n");
-                succeeded=true;
-            }else{
-                //else wrong username/password
-                printf("Wrongpsw\n");
-            }
-        }else{
-            //else - session allready connected
-            printf("Allready connected\n");
-        }
-    }else{//session not found
-        printf("Session not found %d,%d\n",pkg.setup().sessionid(),proxies.count());
-        foreach(int i,proxies.keys()){
-            printf("Key:%d\n",i);
-        }
-    }
-    if(!succeeded){
-        printf("Takeover did not succeed\n");
-        //disconnect
-        quasselproxy::Packet spkg;
-        spkg.mutable_statusinfo()->set_errormsg("Could not associate with the established session");
-        snd->sendPacket(spkg);
-        snd->getClientSocket()->close();
-    }
-    delete(snd);
+void ProxyApplication::registerSession(Proxy *snd,quasselproxy::Packet pkg){
+    proxies.insert(fromStdStringUtf8(pkg.setup().username()),snd);
+}
+Proxy *ProxyApplication::getSession(QString username){
+    return proxies.value(username);
 }

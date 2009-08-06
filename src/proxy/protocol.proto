@@ -13,7 +13,7 @@ message Packet {
 message StatusInfo{
   optional uint32 activbid=1;
   optional bool paused=2 [default=false];
-  optional bool suspend=3 [default=false];
+  optional bool stopSession=3 [default=false];
   optional string errormsg=10;
 }
 message SessionSetup{

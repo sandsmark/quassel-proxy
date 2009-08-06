@@ -39,16 +39,17 @@ public:
   ProxyApplication(int &, char **);
   ~ProxyApplication();
   virtual bool init();
+  void removeSession(Proxy *proxy);
+  void registerSession(Proxy *proxy,quasselproxy::Packet);
+  Proxy *getSession(QString username);
  protected slots:
 void newConnection ();
-void removeSession();
-void switchSid(quasselproxy::Packet);
 private:
   bool _aboutToQuit;
   QPointer<QTcpServer> server;
   int nextSid;
   int port;
-  QMap<int,QPointer<Proxy> > proxies;
+  QMap<QString,QPointer<Proxy> > proxies;
   int outstandingBytes;
   QByteArray readTmp;
 

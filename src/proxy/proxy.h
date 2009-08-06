@@ -42,6 +42,7 @@ class BacklogRequester;
 class QTcpSocket;
 class IrcChannel;
 class Message;
+class ProxyApplication;
 
 //! This class encapsulates Quassel's Qt-based GUI.
 /** This is basically a wrapper around MainWin, which is necessary because we cannot derive MainWin
@@ -51,13 +52,14 @@ class Proxy : public AbstractUi {
   Q_OBJECT
 
 public:
-  Proxy(QTcpSocket *client,int sid);
+  Proxy(QTcpSocket *client,ProxyApplication *app);
   ~Proxy();
 
   MessageModel *createMessageModel(QObject *parent);
   AbstractMessageProcessor *createMessageProcessor(QObject *parent);
   void setSid(int sid);
   int getSid();
+  QString getUsername();
   void sendPacket(quasselproxy::Packet pkg);
   void convertBufferInfoToProto(const BufferInfo *binfo,quasselproxy::Buffer* proto);
   void convertNetworkToProto(const Network* net,quasselproxy::Network* proto);
@@ -86,8 +88,9 @@ signals:
 
     void requestCreateNetwork(const NetworkInfo &, const QStringList &);
     void requestRemoveNetwork(NetworkId);
-    void removeSession();
-    void switchSid(quasselproxy::Packet);
+    //void removeSession();
+    //void switchSession(quasselproxy::Packet);
+    //void registerSession(quasselproxy::Packet);
     //end signals connected to the signalproxy
 
 protected slots:
@@ -156,10 +159,12 @@ private:
   bool clientPause;
   bool syncronizing;
   bool clientDisconnected;
+  bool authenticatedWithCore;
   quint64 timebase;
   QTimer activityChecker;
   QDateTime lastActivity;
   quasselproxy::SessionSetup setup;
+  ProxyApplication *app;
 };
 
 //Proxy *Proxy::instance() { return _instance ? _instance.data() : new Proxy(); }
