@@ -124,7 +124,8 @@ message Buffer{
 
   optional uint32 firstmsg=7;
   optional uint32 lastmsg=8;
-
+  optional uint32 nummsgs=9;
+  
   optional bool update_bools=19;
 
   optional bool type_invalid=20;
@@ -137,6 +138,7 @@ message Buffer{
   optional bool activity_other=31;
   optional bool activity_newMessage=32;
   optional bool activity_highlight=34;
+
   extensions 100 to 199;
 }
 message Network{

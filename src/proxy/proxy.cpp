@@ -423,11 +423,16 @@ void Proxy::convertMessage(const Message *msg,quasselproxy::Message *proto){
     proto->set_flag_backlog(msg->flags().testFlag(Message::Backlog));*/
 }
 void Proxy::backlogRecieved(BufferId id , MsgId first, MsgId last, int limit, int additional, QVariantList messages){
-    printf("Got backlog for:%s\n",bufferInfos.value(id.toInt()).bufferName().toUtf8().constData());
+    printf("Got backlog for(%d):%s;%d\n",id.toInt(),bufferInfos.value(id.toInt()).bufferName().toUtf8().constData(),messages.length());
+    if(messages.length()<1)//don't bother with this then
+        return;
+    quasselproxy::Packet pkg;
     foreach(QVariant msgv, messages){
         Message msg = msgv.value<Message>();
+        convertMessage(&msg,pkg.add_messages());
         printf("Blmsg:<%s>%s\n",msg.sender().toUtf8().constData(),msg.contents().toUtf8().constData());
     }
+    sendPacket(pkg);
 }
 void Proxy::recvMessage(const Message& msg){
     if(!syncronizing&&!clientPause){
@@ -614,6 +619,21 @@ void Proxy::packetRecievedFromClient(quasselproxy::Packet pkg){
                 activeBuffer=pkg.statusinfo().activbid();
             }
         }
+    }
+    int i;
+    for(i=0;i<pkg.buffers_size();i++){//requests for backlog
+        quasselproxy::Buffer msg=pkg.buffers(i);
+        int first=msg.firstmsg();
+        int last=msg.firstmsg();
+        int limit=msg.nummsgs();
+        if(first==0)
+            first=-1;
+        if(last==0)
+            last=-1;
+        if(limit==0)
+            limit=-1;
+        //back->requestBacklog(bufferInfos.values()[5].buffer);
+        back->requestBacklog(msg.bid(),first,last,limit,0);
     }
     for(int i=0;i<pkg.messages_size();i++){
         quasselproxy::Message msg=pkg.messages(i);
