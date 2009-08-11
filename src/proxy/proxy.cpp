@@ -624,7 +624,7 @@ void Proxy::packetRecievedFromClient(quasselproxy::Packet pkg){
     for(i=0;i<pkg.buffers_size();i++){//requests for backlog
         quasselproxy::Buffer msg=pkg.buffers(i);
         int first=msg.firstmsg();
-        int last=msg.firstmsg();
+        int last=msg.lastmsg();
         int limit=msg.nummsgs();
         if(first==0)
             first=-1;
@@ -633,6 +633,7 @@ void Proxy::packetRecievedFromClient(quasselproxy::Packet pkg){
         if(limit==0)
             limit=-1;
         //back->requestBacklog(bufferInfos.values()[5].buffer);
+        //printf("Reqbacklog:%d,%d,%d,%d,0\n",msg.bid(),first,last,limit);
         back->requestBacklog(msg.bid(),first,last,limit,0);
     }
     for(int i=0;i<pkg.messages_size();i++){
