@@ -14,7 +14,8 @@
 #ifndef min
 #define min(a,b) (((a)<(b))?(a):(b))
 #endif
-#define MAX_IDLE_TIME 60
+#define MAX_IDLE_TIME 300
+#define MAX_PRECON_IDLE_TIME 10
 void getDiff(const google::protobuf::Message *m1,const google::protobuf::Message *m2,google::protobuf::Message *mt);
 Proxy::Proxy(QTcpSocket *client,ProxyApplication *app){
     this->app=app;
@@ -813,10 +814,13 @@ void Proxy::updateActivity(){
 }
 void Proxy::checkActivity(){
     if(!clientDisconnected && client!=NULL && client->isOpen()){
-        if(lastActivity.secsTo(QDateTime::currentDateTime())>MAX_IDLE_TIME){
-            if(!authenticatedWithCore)//remove unconnected cores so to minimize denial of service
-                disconnect();
-            printf("Warning: Would disconnect here\n");
+        if(!authenticatedWithCore && lastActivity.secsTo(QDateTime::currentDateTime())>MAX_PRECON_IDLE_TIME){
+            disconnect();
+        }else if(lastActivity.secsTo(QDateTime::currentDateTime())>MAX_IDLE_TIME){
+            printf("Warning: Disconnecting from client due to ping timeout\n");
+            client->disconnectFromHost();
+            clientDisconnected=true;
+            client=NULL;
         }
     }
 }
