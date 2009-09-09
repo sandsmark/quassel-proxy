@@ -21,7 +21,7 @@
 #include "qtui.h"
 
 #include "abstractnotificationbackend.h"
-#include "actioncollection.h"
+#include "buffermodel.h"
 #include "chatlinemodel.h"
 #include "contextmenuactionprovider.h"
 #include "mainwin.h"
@@ -32,12 +32,14 @@
 #include "types.h"
 #include "util.h"
 
-QHash<QString, ActionCollection *> QtUi::_actionCollections;
+#ifdef Q_WS_X11
+#  include <QX11Info>
+#endif
+
 QPointer<QtUi> QtUi::_instance = 0;
 QPointer<MainWin> QtUi::_mainWin = 0;
 QList<AbstractNotificationBackend *> QtUi::_notificationBackends;
 QList<AbstractNotificationBackend::Notification> QtUi::_notifications;
-QtUiStyle *QtUi::_style = 0;
 
 QtUi::QtUi() : GraphicalUi() {
   if(_instance != 0) {
@@ -52,8 +54,10 @@ QtUi::QtUi() : GraphicalUi() {
   QtUiSettings uiSettings;
   Quassel::loadTranslation(uiSettings.value("Locale", QLocale::system()).value<QLocale>());
 
+  setUiStyle(new QtUiStyle(this));
   _mainWin = new MainWin();
-  _style = new QtUiStyle;
+
+  setMainWidget(_mainWin);
 
   connect(_mainWin, SIGNAL(connectToCore(const QVariantMap &)), this, SIGNAL(connectToCore(const QVariantMap &)));
   connect(_mainWin, SIGNAL(disconnectFromCore()), this, SIGNAL(disconnectFromCore()));
@@ -61,21 +65,11 @@ QtUi::QtUi() : GraphicalUi() {
 
 QtUi::~QtUi() {
   unregisterAllNotificationBackends();
-  delete _style;
   delete _mainWin;
 }
 
 void QtUi::init() {
   _mainWin->init();
-}
-
-ActionCollection *QtUi::actionCollection(const QString &category) {
-  if(_actionCollections.contains(category))
-    return _actionCollections.value(category);
-  ActionCollection *coll = new ActionCollection(mainWindow());
-  coll->addAssociatedWidget(mainWindow());
-  _actionCollections.insert(category, coll);
-  return coll;
 }
 
 MessageModel *QtUi::createMessageModel(QObject *parent) {
@@ -97,7 +91,7 @@ void QtUi::disconnectedFromCore() {
 void QtUi::registerNotificationBackend(AbstractNotificationBackend *backend) {
   if(!_notificationBackends.contains(backend)) {
     _notificationBackends.append(backend);
-    instance()->connect(backend, SIGNAL(activated()), SLOT(notificationActivated()));
+    instance()->connect(backend, SIGNAL(activated(uint)), SLOT(notificationActivated(uint)));
   }
 }
 
@@ -113,10 +107,10 @@ const QList<AbstractNotificationBackend *> &QtUi::notificationBackends() {
   return _notificationBackends;
 }
 
-uint QtUi::invokeNotification(BufferId bufId, const QString &sender, const QString &text) {
+uint QtUi::invokeNotification(BufferId bufId, AbstractNotificationBackend::NotificationType type, const QString &sender, const QString &text) {
   static int notificationId = 0;
   //notificationId++;
-  AbstractNotificationBackend::Notification notification(++notificationId, bufId, sender, text);
+  AbstractNotificationBackend::Notification notification(++notificationId, bufId, type, sender, text);
   _notifications.append(notification);
   foreach(AbstractNotificationBackend *backend, _notificationBackends)
     backend->notify(notification);
@@ -131,9 +125,7 @@ void QtUi::closeNotification(uint notificationId) {
         backend->close(notificationId);
       i = _notifications.erase(i);
       break;
-    } else {
-      ++i;
-    }
+    } else ++i;
   }
 }
 
@@ -144,9 +136,7 @@ void QtUi::closeNotifications(BufferId bufferId) {
       foreach(AbstractNotificationBackend *backend, _notificationBackends)
         backend->close((*i).notificationId);
       i = _notifications.erase(i);
-    } else {
-      ++i;
-    }
+    } else ++i;
   }
 }
 
@@ -154,8 +144,21 @@ const QList<AbstractNotificationBackend::Notification> &QtUi::activeNotification
   return _notifications;
 }
 
-void QtUi::notificationActivated() {
-  // this might not work with some window managers
-  _mainWin->raise();
-  _mainWin->activateWindow();
+void QtUi::notificationActivated(uint notificationId) {
+  if(notificationId != 0) {
+    QList<AbstractNotificationBackend::Notification>::iterator i = _notifications.begin();
+    while(i != _notifications.end()) {
+      if((*i).notificationId == notificationId) {
+        BufferId bufId = (*i).bufferId;
+        if(bufId.isValid())
+          Client::bufferModel()->switchToBuffer(bufId);
+        foreach(AbstractNotificationBackend *backend, _notificationBackends)
+          backend->close(notificationId);
+        _notifications.erase(i);
+        break;
+      } else ++i;
+    }
+  }
+
+  mainWindow()->forceActivated();
 }

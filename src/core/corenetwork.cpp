@@ -23,11 +23,13 @@
 #include "core.h"
 #include "coresession.h"
 #include "coreidentity.h"
+#include "corenetworkconfig.h"
 
 #include "ircserverhandler.h"
 #include "userinputhandler.h"
 #include "ctcphandler.h"
 
+INIT_SYNCABLE_OBJECT(CoreNetwork)
 CoreNetwork::CoreNetwork(const NetworkId &networkid, CoreSession *session)
   : Network(networkid, session),
     _coreSession(session),
@@ -41,36 +43,35 @@ CoreNetwork::CoreNetwork(const NetworkId &networkid, CoreSession *session)
     _lastUsedServerIndex(0),
 
     _lastPingTime(0),
-    _maxPingCount(3),
+    _pingCount(0)
     _pingCount(0),
 
-    // TODO make autowho configurable (possibly per-network)
-    _autoWhoEnabled(true),
-    _autoWhoInterval(90),
-    _autoWhoNickLimit(0), // unlimited
-    _autoWhoDelay(5)
 {
   _autoReconnectTimer.setSingleShot(true);
   _socketCloseTimer.setSingleShot(true);
   connect(&_socketCloseTimer, SIGNAL(timeout()), this, SLOT(socketCloseTimeout()));
 
-  _pingTimer.setInterval(30000);
+  setPingInterval(networkConfig()->pingInterval());
   connect(&_pingTimer, SIGNAL(timeout()), this, SLOT(sendPing()));
 
-  _autoWhoTimer.setInterval(_autoWhoDelay * 1000);
-  _autoWhoCycleTimer.setInterval(_autoWhoInterval * 1000);
+  setAutoWhoDelay(networkConfig()->autoWhoDelay());
+  setAutoWhoInterval(networkConfig()->autoWhoInterval());
 
   QHash<QString, QString> channels = coreSession()->persistentChannels(networkId());
   foreach(QString chan, channels.keys()) {
     _channelKeys[chan.toLower()] = channels[chan];
   }
 
+  connect(networkConfig(), SIGNAL(pingTimeoutEnabledSet(bool)), SLOT(enablePingTimeout(bool)));
+  connect(networkConfig(), SIGNAL(pingIntervalSet(int)), SLOT(setPingInterval(int)));
+  connect(networkConfig(), SIGNAL(autoWhoEnabledSet(bool)), SLOT(setAutoWhoEnabled(bool)));
+  connect(networkConfig(), SIGNAL(autoWhoIntervalSet(int)), SLOT(setAutoWhoInterval(int)));
+  connect(networkConfig(), SIGNAL(autoWhoDelaySet(int)), SLOT(setAutoWhoDelay(int)));
+
   connect(&_autoReconnectTimer, SIGNAL(timeout()), this, SLOT(doAutoReconnect()));
   connect(&_autoWhoTimer, SIGNAL(timeout()), this, SLOT(sendAutoWho()));
   connect(&_autoWhoCycleTimer, SIGNAL(timeout()), this, SLOT(startAutoWhoCycle()));
   connect(&_tokenBucketTimer, SIGNAL(timeout()), this, SLOT(fillBucketAndProcessQueue()));
-  connect(this, SIGNAL(connectRequested()), this, SLOT(connectToIrc()));
-
 
   connect(&socket, SIGNAL(connected()), this, SLOT(socketInitialized()));
   connect(&socket, SIGNAL(disconnected()), this, SLOT(socketDisconnected()));
@@ -306,7 +307,7 @@ void CoreNetwork::socketError(QAbstractSocket::SocketError error) {
   _previousConnectionAttemptFailed = true;
   qWarning() << qPrintable(tr("Could not connect to %1 (%2)").arg(networkName(), socket.errorString()));
   emit connectionError(socket.errorString());
-  emit displayMsg(Message::Error, BufferInfo::StatusBuffer, "", tr("Connection failure: %1").arg(socket.errorString()));
+  displayMsg(Message::Error, BufferInfo::StatusBuffer, "", tr("Connection failure: %1").arg(socket.errorString()));
   emitConnectionError(socket.errorString());
   if(socket.state() < QAbstractSocket::ConnectedState) {
     socketDisconnected();
@@ -336,7 +337,14 @@ void CoreNetwork::socketInitialized() {
   if(!server.password.isEmpty()) {
     putRawLine(serverEncode(QString("PASS %1").arg(server.password)));
   }
-  putRawLine(serverEncode(QString("NICK :%1").arg(identity->nicks()[0])));
+  QString nick;
+  if(identity->nicks().isEmpty()) {
+    nick = "quassel";
+    qWarning() << "CoreNetwork::socketInitialized(): no nicks supplied for identity Id" << identity->id();
+  } else {
+    nick = identity->nicks()[0];
+  }
+  putRawLine(serverEncode(QString("NICK :%1").arg(nick)));
   putRawLine(serverEncode(QString("USER %1 8 * :%2").arg(identity->ident(), identity->realName())));
 }
 
@@ -356,7 +364,7 @@ void CoreNetwork::socketDisconnected() {
   IrcUser *me_ = me();
   if(me_) {
     foreach(QString channel, me_->channels())
-      emit displayMsg(Message::Quit, BufferInfo::ChannelBuffer, channel, _quitReason, me_->hostmask());
+      displayMsg(Message::Quit, BufferInfo::ChannelBuffer, channel, _quitReason, me_->hostmask());
   }
 
   setConnected(false);
@@ -366,7 +374,7 @@ void CoreNetwork::socketDisconnected() {
     Core::setNetworkConnected(userId(), networkId(), false);
   } else if(_autoReconnectCount != 0) {
     setConnectionState(Network::Reconnecting);
-    if(_autoReconnectCount == autoReconnectRetries())
+    if(_autoReconnectCount == -1 || _autoReconnectCount == autoReconnectRetries())
       doAutoReconnect(); // first try is immediate
     else
       _autoReconnectTimer.start();
@@ -402,7 +410,7 @@ void CoreNetwork::networkInitialized() {
 
   if(useAutoReconnect()) {
     // reset counter
-    _autoReconnectCount = autoReconnectRetries();
+    _autoReconnectCount = unlimitedReconnectRetries() ? -1 : autoReconnectRetries();
   }
 
   // restore away state
@@ -425,7 +433,7 @@ void CoreNetwork::networkInitialized() {
 
   enablePingTimeout();
 
-  if(_autoWhoEnabled) {
+  if(networkConfig()->autoWhoEnabled()) {
     _autoWhoCycleTimer.start();
     _autoWhoTimer.start();
     startAutoWhoCycle();  // FIXME wait for autojoin to be completed
@@ -513,18 +521,22 @@ void CoreNetwork::doAutoReconnect() {
     qWarning() << "CoreNetwork::doAutoReconnect(): Cannot reconnect while not being disconnected!";
     return;
   }
-  if(_autoReconnectCount > 0)
-    _autoReconnectCount--;
+  if(_autoReconnectCount > 0 || _autoReconnectCount == -1)
+    _autoReconnectCount--; // -2 means we delay the next reconnect
   connectToIrc(true);
 }
 
 void CoreNetwork::sendPing() {
   uint now = QDateTime::currentDateTime().toTime_t();
-  if(_pingCount >= _maxPingCount && now - _lastPingTime <= (uint)(_pingTimer.interval() / 1000) + 1) {
+  if(_pingCount != 0) {
+    qDebug() << "UserId:" << userId() << "Network:" << networkName() << "missed" << _pingCount << "pings."
+	     << "BA:" << socket.bytesAvailable() << "BTW:" << socket.bytesToWrite();
+  }
+  if((int)_pingCount >= networkConfig()->maxPingCount() && now - _lastPingTime <= (uint)(_pingTimer.interval() / 1000) + 1) {
     // the second check compares the actual elapsed time since the last ping and the pingTimer interval
     // if the interval is shorter then the actual elapsed time it means that this thread was somehow blocked
     // and unable to even handle a ping answer. So we ignore those misses.
-    disconnectFromIrc(false, QString("No Ping reply in %1 seconds.").arg(_maxPingCount * _pingTimer.interval() / 1000), true /* withReconnect */);
+    disconnectFromIrc(false, QString("No Ping reply in %1 seconds.").arg(_pingCount * _pingTimer.interval() / 1000), true /* withReconnect */);
   } else {
     _lastPingTime = now;
     _pingCount++;
@@ -532,14 +544,50 @@ void CoreNetwork::sendPing() {
   }
 }
 
-void CoreNetwork::enablePingTimeout() {
-  resetPingTimeout();
-  _pingTimer.start();
+void CoreNetwork::enablePingTimeout(bool enable) {
+  if(!enable)
+    disablePingTimeout();
+  else {
+    resetPingTimeout();
+    if(networkConfig()->pingTimeoutEnabled())
+      _pingTimer.start();
+  }
 }
 
 void CoreNetwork::disablePingTimeout() {
   _pingTimer.stop();
   resetPingTimeout();
+}
+
+void CoreNetwork::setPingInterval(int interval) {
+  _pingTimer.setInterval(interval * 1000);
+}
+
+/******** AutoWHO ********/
+
+void CoreNetwork::startAutoWhoCycle() {
+  if(!_autoWhoQueue.isEmpty()) {
+    _autoWhoCycleTimer.stop();
+    return;
+  }
+  _autoWhoQueue = channels();
+}
+
+void CoreNetwork::setAutoWhoDelay(int delay) {
+  _autoWhoTimer.setInterval(delay * 1000);
+}
+
+void CoreNetwork::setAutoWhoInterval(int interval) {
+  _autoWhoCycleTimer.setInterval(interval * 1000);
+}
+
+void CoreNetwork::setAutoWhoEnabled(bool enabled) {
+  if(enabled && isConnected() && !_autoWhoTimer.isActive())
+    _autoWhoTimer.start();
+  else if(!enabled) {
+    _autoWhoTimer.stop();
+    _autoWhoCycleTimer.stop();
+  }
 }
 
 void CoreNetwork::sendAutoWho() {
@@ -551,24 +599,17 @@ void CoreNetwork::sendAutoWho() {
     QString chan = _autoWhoQueue.takeFirst();
     IrcChannel *ircchan = ircChannel(chan);
     if(!ircchan) continue;
-    if(_autoWhoNickLimit > 0 && ircchan->ircUsers().count() > _autoWhoNickLimit) continue;
+    if(networkConfig()->autoWhoNickLimit() > 0 && ircchan->ircUsers().count() >= networkConfig()->autoWhoNickLimit())
+      continue;
     _autoWhoPending[chan]++;
     putRawLine("WHO " + serverEncode(chan));
-    if(_autoWhoQueue.isEmpty() && _autoWhoEnabled && !_autoWhoCycleTimer.isActive()) {
-      // Timer was stopped, means a new cycle is due immediately
-      _autoWhoCycleTimer.start();
-      startAutoWhoCycle();
-    }
     break;
   }
-}
-
-void CoreNetwork::startAutoWhoCycle() {
-  if(!_autoWhoQueue.isEmpty()) {
-    _autoWhoCycleTimer.stop();
-    return;
+  if(_autoWhoQueue.isEmpty() && networkConfig()->autoWhoEnabled() && !_autoWhoCycleTimer.isActive()) {
+    // Timer was stopped, means a new cycle is due immediately
+    _autoWhoCycleTimer.start();
+    startAutoWhoCycle();
   }
-  _autoWhoQueue = channels();
 }
 
 #ifdef HAVE_SSL
@@ -610,7 +651,7 @@ void CoreNetwork::requestConnect() const {
     qWarning() << "Requesting connect while already being connected!";
     return;
   }
-  Network::requestConnect();
+  QMetaObject::invokeMethod(const_cast<CoreNetwork *>(this), "connectToIrc", Qt::QueuedConnection);
 }
 
 void CoreNetwork::requestDisconnect() const {

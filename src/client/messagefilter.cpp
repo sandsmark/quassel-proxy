@@ -25,6 +25,7 @@
 #include "buffermodel.h"
 #include "messagemodel.h"
 #include "networkmodel.h"
+#include "clientignorelistmanager.h"
 
 MessageFilter::MessageFilter(QAbstractItemModel *source, QObject *parent)
   : QSortFilterProxyModel(parent),
@@ -45,6 +46,8 @@ MessageFilter::MessageFilter(MessageModel *source, const QList<BufferId> &buffer
 
 void MessageFilter::init() {
   setDynamicSortFilter(true);
+
+  _userNoticesTarget = _serverNoticesTarget = _errorMsgsTarget = -1;
 
   BufferSettings defaultSettings;
   defaultSettings.notify("UserNoticesTarget", this, SLOT(messageRedirectionChanged()));
@@ -118,7 +121,7 @@ QString MessageFilter::idString() const {
 bool MessageFilter::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
   Q_UNUSED(sourceParent);
   QModelIndex sourceIdx = sourceModel()->index(sourceRow, 2);
-  Message::Type messageType = (Message::Type)sourceModel()->data(sourceIdx, MessageModel::TypeRole).toInt();
+  Message::Type messageType = (Message::Type)sourceIdx.data(MessageModel::TypeRole).toInt();
 
   // apply message type filter
   if(_messageTypeFilter & messageType)
@@ -127,19 +130,24 @@ bool MessageFilter::filterAcceptsRow(int sourceRow, const QModelIndex &sourcePar
   if(_validBuffers.isEmpty())
     return true;
 
-  BufferId bufferId = sourceModel()->data(sourceIdx, MessageModel::BufferIdRole).value<BufferId>();
+  BufferId bufferId = sourceIdx.data(MessageModel::BufferIdRole).value<BufferId>();
   if(!bufferId.isValid()) {
     return true;
   }
 
-  MsgId msgId = sourceModel()->data(sourceIdx, MessageModel::MsgIdRole).value<MsgId>();
-  Message::Flags flags = (Message::Flags)sourceModel()->data(sourceIdx, MessageModel::FlagsRole).toInt();
+  MsgId msgId = sourceIdx.data(MessageModel::MsgIdRole).value<MsgId>();
+  Message::Flags flags = (Message::Flags)sourceIdx.data(MessageModel::FlagsRole).toInt();
 
   NetworkId myNetworkId = networkId();
   NetworkId msgNetworkId = Client::networkModel()->networkId(bufferId);
   if(myNetworkId != msgNetworkId)
     return false;
 
+  // ignorelist handling
+  // only match if message is not flagged as server msg
+  if(!(flags & Message::ServerMsg) && Client::ignoreListManager()
+      && Client::ignoreListManager()->match(sourceIdx.data(MessageModel::MessageRole).value<Message>(), Client::networkModel()->networkName(bufferId)))
+    return false;
 
   if(flags & Message::Redirected) {
     int redirectionTarget = 0;

@@ -12,14 +12,19 @@ set(SOURCES
     backlogrequester.cpp
     buffermodel.cpp
     buffersettings.cpp
+    bufferviewoverlay.cpp
     client.cpp
+    clientaliasmanager.cpp
     clientbacklogmanager.cpp
     clientbufferviewconfig.cpp
     clientbufferviewmanager.cpp
     clientidentity.cpp
+    clientignorelistmanager.cpp
     clientirclisthelper.cpp
     clientsettings.cpp
     clientsyncer.cpp
+    clientuserinputhandler.cpp
+    execwrapper.cpp
     irclistmodel.cpp
     messagefilter.cpp
     messagemodel.cpp
@@ -31,14 +36,19 @@ set(MOC_HDRS
     abstractmessageprocessor.h
     abstractui.h
     buffermodel.h
+    bufferviewoverlay.h
     client.h
+    clientaliasmanager.h
     clientbacklogmanager.h
     clientbufferviewconfig.h
     clientbufferviewmanager.h
     clientcoreinfo.h
     clientidentity.h
+    clientignorelistmanager.h
     clientirclisthelper.h
+    clientuserinputhandler.h
     clientsyncer.h
+    execwrapper.h
     irclistmodel.h
     messagefilter.h
     messagemodel.h

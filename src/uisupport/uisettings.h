@@ -28,25 +28,45 @@ class UiSettings : public ClientSettings {
 public:
   UiSettings(const QString &group = "Ui");
 
-  inline void setValue(const QString &key, const QVariant &data) { setLocalValue(key, data); }
-  inline QVariant value(const QString &key, const QVariant &def = QVariant()) { return localValue(key, def); }
+  virtual inline void setValue(const QString &key, const QVariant &data) { setLocalValue(key, data); }
+  virtual inline QVariant value(const QString &key, const QVariant &def = QVariant()) { return localValue(key, def); }
+
   inline void remove(const QString &key) { removeLocalKey(key); }
 };
 
 
-class UiStyleSettings : public ClientSettings {
+class UiStyleSettings : public UiSettings {
 public:
-  UiStyleSettings(const QString &group = "UiStyle");
-
-  inline void setValue(const QString &key, const QVariant &data) { setLocalValue(key, data); }
-  inline QVariant value(const QString &key, const QVariant &def = QVariant()) { return localValue(key, def); }
-  inline void remove(const QString &key) { removeLocalKey(key); }
+  UiStyleSettings();
+  UiStyleSettings(const QString &subGroup);
 
   void setCustomFormat(UiStyle::FormatType, QTextCharFormat);
   QTextCharFormat customFormat(UiStyle::FormatType);
 
   void removeCustomFormat(UiStyle::FormatType);
   QList<UiStyle::FormatType> availableFormats();
+};
+
+class SessionSettings : public UiSettings {
+public:
+  SessionSettings(const QString &sessionId, const QString &group = "Session");
+
+  virtual void setValue(const QString &key, const QVariant &data);
+  virtual QVariant value(const QString &key, const QVariant &def = QVariant());
+
+  void removeKey(const QString &key);
+  void removeSession();
+
+  void cleanup();
+  void sessionAging();
+
+  int sessionAge();
+  void setSessionAge(int age);
+  inline const QString sessionId() { return _sessionId; };
+  inline void setSessionId(const QString &sessionId) { _sessionId = sessionId; }
+
+private:
+  QString _sessionId;
 };
 
 #endif

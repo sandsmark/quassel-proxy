@@ -34,10 +34,12 @@ class MessageModel : public QAbstractItemModel {
   Q_OBJECT
 
 public:
-  enum MessageRole {
+  enum MessageModelRole {
     DisplayRole = Qt::DisplayRole,
     EditRole = Qt::EditRole,
-    MsgIdRole = Qt::UserRole,
+    BackgroundRole = Qt::BackgroundRole,
+    MessageRole = Qt::UserRole,
+    MsgIdRole,
     BufferIdRole,
     TypeRole,
     FlagsRole,
@@ -73,6 +75,7 @@ public slots:
   void requestBacklog(BufferId bufferId);
   void messagesReceived(BufferId bufferId, int count);
   void buffersPermanentlyMerged(BufferId bufferId1, BufferId bufferId2);
+  void insertErrorMessage(BufferInfo bufferInfo, const QString &errorString);
 
 protected:
 //   virtual MessageModelItem *createMessageModelItem(const Message &) = 0;
@@ -139,7 +142,6 @@ public:
   static bool lessThan(const MessageModelItem *m1, const MessageModelItem *m2);
 
 private:
-  Message _msg;
   BufferId _redirectedTo;
 };
 

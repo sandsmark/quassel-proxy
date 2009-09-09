@@ -9,20 +9,28 @@ set(SOURCES
     abstractitemview.cpp
     action.cpp
     actioncollection.cpp
+    bufferhotlistfilter.cpp
     bufferview.cpp
     bufferviewfilter.cpp
+    bufferviewoverlayfilter.cpp
     clearablelineedit.cpp
+    clickable.cpp
     clickablelabel.cpp
     colorbutton.cpp
     contextmenuactionprovider.cpp
+    flatproxymodel.cpp
+    fontselector.cpp
     graphicalui.cpp
     icon.cpp
     iconloader.cpp
-    inputline.cpp
+    multilineedit.cpp
     networkmodelcontroller.cpp
     nickview.cpp
     nickviewfilter.cpp
+    qssparser.cpp
+    resizingstackedwidget.cpp
     settingspage.cpp
+    styledlabel.cpp
     tabcompleter.cpp
     toolbaractionprovider.cpp
     uisettings.cpp
@@ -35,27 +43,35 @@ set(MOC_HDRS
     abstractnotificationbackend.h
     action.h
     actioncollection.h
+    bufferhotlistfilter.h
     bufferview.h
     bufferviewfilter.h
+    bufferviewoverlayfilter.h
     clearablelineedit.h
     clickablelabel.h
     colorbutton.h
     contextmenuactionprovider.h
+    flatproxymodel.h
+    fontselector.h
     graphicalui.h
     iconloader.h
-    inputline.h
+    multilineedit.h
     networkmodelcontroller.h
     nickview.h
     nickviewfilter.h
+    resizingstackedwidget.h
     settingspage.h
+    styledlabel.h
     tabcompleter.h
     toolbaractionprovider.h
+    uistyle.h
    )
 
 set(HEADERS
+    clickable.h
     icon.h
+    qssparser.h
     uisettings.h
-    uistyle.h
    )
 
 if(HAVE_KDE)

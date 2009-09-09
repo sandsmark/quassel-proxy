@@ -30,6 +30,7 @@ public:
   ChatLineModelItem(const Message &);
 
   virtual QVariant data(int column, int role) const;
+  virtual bool setData(int column, const QVariant &value, int role);
 
   virtual inline const Message &message() const { return _styledMsg; }
   virtual inline const QDateTime &timestamp() const { return _styledMsg.timestamp(); }
@@ -38,6 +39,8 @@ public:
   virtual inline void setBufferId(BufferId bufferId) { _styledMsg.setBufferId(bufferId); }
   virtual inline Message::Type msgType() const { return _styledMsg.type(); }
   virtual inline Message::Flags msgFlags() const { return _styledMsg.flags(); }
+
+  virtual inline void invalidateWrapList() { _wrapList.clear(); }
 
   /// Used to store information about words to be used for wrapping
   struct Word {
@@ -49,9 +52,12 @@ public:
   typedef QVector<Word> WrapList;
 
 private:
-  virtual QVariant timestampData(int role) const;
-  virtual QVariant senderData(int role) const;
-  virtual QVariant contentsData(int role) const;
+  QVariant timestampData(int role) const;
+  QVariant senderData(int role) const;
+  QVariant contentsData(int role) const;
+
+  QVariant backgroundBrush(UiStyle::FormatType subelement, bool selected = false) const;
+  quint32 messageLabel() const;
 
   void computeWrapList() const;
 

@@ -25,12 +25,11 @@
 
 #include "abstractnotificationbackend.h"
 #include "mainwin.h"
+#include "qtuistyle.h"
 
-class ActionCollection;
 class MainWin;
 class MessageModel;
 class QtUiMessageProcessor;
-class QtUiStyle;
 
 //! This class encapsulates Quassel's Qt-based GUI.
 /** This is basically a wrapper around MainWin, which is necessary because we cannot derive MainWin
@@ -50,21 +49,13 @@ public:
   inline static QtUiStyle *style();
   inline static MainWin *mainWindow();
 
-  //! Access global ActionCollections.
-  /** These ActionCollections are associated with the main window, i.e. they contain global
-   *  actions (and thus, shortcuts). Widgets providing application-wide shortcuts should
-   *  create appropriate Action objects using QtUi::actionCollection(cat)->add\<Action\>().
-   *  @param category The category (default: "General")
-   */
-  static ActionCollection *actionCollection(const QString &category = "General");
-
   /* Notifications */
 
   static void registerNotificationBackend(AbstractNotificationBackend *);
   static void unregisterNotificationBackend(AbstractNotificationBackend *);
   static void unregisterAllNotificationBackends();
   static const QList<AbstractNotificationBackend *> &notificationBackends();
-  static uint invokeNotification(BufferId bufId, const QString &sender, const QString &text);
+  static uint invokeNotification(BufferId bufId, AbstractNotificationBackend::NotificationType type, const QString &sender, const QString &text);
   static void closeNotification(uint notificationId);
   static void closeNotifications(BufferId bufferId = BufferId());
   static const QList<AbstractNotificationBackend::Notification> &activeNotifications();
@@ -75,19 +66,17 @@ public slots:
 protected slots:
   void connectedToCore();
   void disconnectedFromCore();
-  void notificationActivated();
+  void notificationActivated(uint notificationId);
 
 private:
   static QPointer<QtUi> _instance;
   static QPointer<MainWin> _mainWin;
-  static QHash<QString, ActionCollection *> _actionCollections;
-  static QtUiStyle *_style;
   static QList<AbstractNotificationBackend *> _notificationBackends;
   static QList<AbstractNotificationBackend::Notification> _notifications;
 };
 
 QtUi *QtUi::instance() { return _instance ? _instance.data() : new QtUi(); }
-QtUiStyle *QtUi::style() { return _style; }
+QtUiStyle *QtUi::style() { return qobject_cast<QtUiStyle*>(uiStyle()); }
 MainWin *QtUi::mainWindow() { return _mainWin; }
 
 #endif

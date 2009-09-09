@@ -22,6 +22,7 @@
 
 #include "clientbufferviewconfig.h"
 
+INIT_SYNCABLE_OBJECT(ClientBufferViewManager)
 ClientBufferViewManager::ClientBufferViewManager(SignalProxy *proxy, QObject *parent)
   : BufferViewManager(proxy, parent)
 {
@@ -42,4 +43,3 @@ QList<ClientBufferViewConfig *> ClientBufferViewManager::clientBufferViewConfigs
 ClientBufferViewConfig *ClientBufferViewManager::clientBufferViewConfig(int bufferViewId) const {
   return static_cast<ClientBufferViewConfig *>(bufferViewConfig(bufferViewId));
 }
-

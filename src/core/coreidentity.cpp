@@ -22,6 +22,7 @@
 
 #include "signalproxy.h"
 
+INIT_SYNCABLE_OBJECT(CoreIdentity)
 CoreIdentity::CoreIdentity(IdentityId id, QObject *parent)
   : Identity(id, parent)
 #ifdef HAVE_SSL
@@ -30,7 +31,7 @@ CoreIdentity::CoreIdentity(IdentityId id, QObject *parent)
 {
 #ifdef HAVE_SSL
   connect(this, SIGNAL(idSet(IdentityId)), &_certManager, SLOT(setId(IdentityId)));
-  connect(&_certManager, SIGNAL(updated(const QVariantMap &)), this, SIGNAL(updated(const QVariantMap &)));
+  connect(&_certManager, SIGNAL(updated()), this, SIGNAL(updated()));
 #endif
 }
 
@@ -42,7 +43,7 @@ CoreIdentity::CoreIdentity(const Identity &other, QObject *parent)
 {
 #ifdef HAVE_SSL
   connect(this, SIGNAL(idSet(IdentityId)), &_certManager, SLOT(setId(IdentityId)));
-  connect(&_certManager, SIGNAL(updated(const QVariantMap &)), this, SIGNAL(updated(const QVariantMap &)));
+  connect(&_certManager, SIGNAL(updated()), this, SIGNAL(updated()));
 #endif
 }
 
@@ -56,7 +57,7 @@ CoreIdentity::CoreIdentity(const CoreIdentity &other, QObject *parent)
 {
 #ifdef HAVE_SSL
   connect(this, SIGNAL(idSet(IdentityId)), &_certManager, SLOT(setId(IdentityId)));
-  connect(&_certManager, SIGNAL(updated(const QVariantMap &)), this, SIGNAL(updated(const QVariantMap &)));
+  connect(&_certManager, SIGNAL(updated()), this, SIGNAL(updated()));
 #endif
 }
 
@@ -93,6 +94,7 @@ CoreIdentity &CoreIdentity::operator=(const CoreIdentity &identity) {
 // ========================================
 //  CoreCertManager
 // ========================================
+INIT_SYNCABLE_OBJECT(CoreCertManager)
 CoreCertManager::CoreCertManager(CoreIdentity &identity)
   : CertManager(identity.id()),
     identity(identity)

@@ -19,12 +19,29 @@
  ***************************************************************************/
 #include <QApplication>
 
+#include "buffersettings.h"
+#include "iconloader.h"
+#include "qssparser.h"
 #include "quassel.h"
 #include "uistyle.h"
 #include "uisettings.h"
 #include "util.h"
 
-UiStyle::UiStyle(const QString &settingsKey) : _settingsKey(settingsKey) {
+QHash<QString, UiStyle::FormatType> UiStyle::_formatCodes;
+QString UiStyle::_timestampFormatString;
+
+UiStyle::UiStyle(QObject *parent)
+: QObject(parent),
+  _channelJoinedIcon(SmallIcon("irc-channel-active")),
+  _channelPartedIcon(SmallIcon("irc-channel-inactive")),
+  _userOfflineIcon(SmallIcon("im-user-offline")),
+  _userOnlineIcon(SmallIcon("im-user")),
+  _userAwayIcon(SmallIcon("im-user-away")),
+  _categoryOpIcon(SmallIcon("irc-operator")),
+  _categoryVoiceIcon(SmallIcon("irc-voice")),
+  _opIconLimit(UserCategoryItem::categoryFromModes("o")),
+  _voiceIconLimit(UserCategoryItem::categoryFromModes("v"))
+{
   // register FormatList if that hasn't happened yet
   // FIXME I don't think this actually avoids double registration... then again... does it hurt?
   if(QVariant::nameToType("UiStyle::FormatList") == QVariant::Invalid) {
@@ -33,164 +50,374 @@ UiStyle::UiStyle(const QString &settingsKey) : _settingsKey(settingsKey) {
     Q_ASSERT(QVariant::nameToType("UiStyle::FormatList") != QVariant::Invalid);
   }
 
-  _defaultFont = QFont("Monospace", QApplication::font().pointSize());
-
-  // Default format
-  _defaultPlainFormat.setForeground(QBrush("#000000"));
-  _defaultPlainFormat.setFont(_defaultFont);
-  _defaultPlainFormat.font().setFixedPitch(true);
-  _defaultPlainFormat.font().setStyleHint(QFont::TypeWriter);
-  setFormat(None, _defaultPlainFormat, Settings::Default);
-
-  // Load saved custom formats
-  UiStyleSettings s(_settingsKey);
-  foreach(FormatType type, s.availableFormats()) {
-    _customFormats[type] = s.customFormat(type);
-  }
-
-  // Check for the sender auto coloring option
-  _senderAutoColor = s.value("Colors/SenderAutoColor", false).toBool();
+  _uiStylePalette = QVector<QBrush>(NumRoles, QBrush());
 
   // Now initialize the mapping between FormatCodes and FormatTypes...
-  _formatCodes["%O"] = None;
+  _formatCodes["%O"] = Base;
   _formatCodes["%B"] = Bold;
   _formatCodes["%S"] = Italic;
   _formatCodes["%U"] = Underline;
   _formatCodes["%R"] = Reverse;
 
-  _formatCodes["%D0"] = PlainMsg;
-  _formatCodes["%Dn"] = NoticeMsg;
-  _formatCodes["%Ds"] = ServerMsg;
-  _formatCodes["%De"] = ErrorMsg;
-  _formatCodes["%Dj"] = JoinMsg;
-  _formatCodes["%Dp"] = PartMsg;
-  _formatCodes["%Dq"] = QuitMsg;
-  _formatCodes["%Dk"] = KickMsg;
-  _formatCodes["%Dr"] = RenameMsg;
-  _formatCodes["%Dm"] = ModeMsg;
-  _formatCodes["%Da"] = ActionMsg;
-
-  _formatCodes["%DT"] = Timestamp;
-  _formatCodes["%DS"] = Sender;
   _formatCodes["%DN"] = Nick;
   _formatCodes["%DH"] = Hostmask;
   _formatCodes["%DC"] = ChannelName;
   _formatCodes["%DM"] = ModeFlags;
   _formatCodes["%DU"] = Url;
 
-  // Initialize color codes according to mIRC "standard"
-  QStringList colors;
-  //colors << "white" << "black" << "navy" << "green" << "red" << "maroon" << "purple" << "orange";
-  //colors << "yellow" << "lime" << "teal" << "aqua" << "royalblue" << "fuchsia" << "grey" << "silver";
-  colors << "#ffffff" << "#000000" << "#000080" << "#008000" << "#ff0000" << "#800000" << "#800080" << "#ffa500";
-  colors << "#ffff00" << "#00ff00" << "#008080" << "#00ffff" << "#4169E1" << "#ff00ff" << "#808080" << "#c0c0c0";
+  setTimestampFormatString("[hh:mm:ss]");
 
-  // Set color formats
-  for(int i = 0; i < 16; i++) {
-    QString idx = QString("%1").arg(i, (int)2, (int)10, (QChar)'0');
-    _formatCodes[QString("%Dcf%1").arg(idx)] = (FormatType)(FgCol00 | i<<24);
-    _formatCodes[QString("%Dcb%1").arg(idx)] = (FormatType)(BgCol00 | i<<28);
-    QTextCharFormat fgf, bgf;
-    fgf.setForeground(QBrush(QColor(colors[i]))); setFormat((FormatType)(FgCol00 | i<<24), fgf, Settings::Default);
-    bgf.setBackground(QBrush(QColor(colors[i]))); setFormat((FormatType)(BgCol00 | i<<28), bgf, Settings::Default);
+  // BufferView / NickView settings
+  UiStyleSettings s;
+  _showBufferViewIcons = _showNickViewIcons = s.value("ShowItemViewIcons", true).toBool();
+  s.notify("ShowItemViewIcons", this, SLOT(showItemViewIconsChanged()));
+
+  loadStyleSheet();
+}
+
+UiStyle::~UiStyle() {
+  qDeleteAll(_metricsCache);
+}
+
+void UiStyle::reload() {
+  loadStyleSheet();
+}
+
+void UiStyle::loadStyleSheet() {
+  qDeleteAll(_metricsCache);
+  _metricsCache.clear();
+  _formatCache.clear();
+  _formats.clear();
+
+  UiStyleSettings s;
+
+  QString styleSheet;
+  styleSheet += loadStyleSheet("file:///" + Quassel::findDataFilePath("stylesheets/default.qss"));
+  styleSheet += loadStyleSheet("file:///" + Quassel::configDirPath() + "settings.qss");
+  if(s.value("UseCustomStyleSheet", false).toBool())
+    styleSheet += loadStyleSheet("file:///" + s.value("CustomStyleSheetPath").toString(), true);
+  styleSheet += loadStyleSheet("file:///" + Quassel::optionValue("qss"), true);
+
+  if(!styleSheet.isEmpty()) {
+    QssParser parser;
+    parser.processStyleSheet(styleSheet);
+    QApplication::setPalette(parser.palette());
+
+    _uiStylePalette = parser.uiStylePalette();
+    _formats = parser.formats();
+    _listItemFormats = parser.listItemFormats();
+
+    styleSheet = styleSheet.trimmed();
+    if(!styleSheet.isEmpty())
+      qApp->setStyleSheet(styleSheet); // pass the remaining sections to the application
   }
 
-  // Set a few more standard formats
-  QTextCharFormat bold; bold.setFontWeight(QFont::Bold);
-  setFormat(Bold, bold, Settings::Default);
-
-  QTextCharFormat italic; italic.setFontItalic(true);
-  setFormat(Italic, italic, Settings::Default);
-
-  QTextCharFormat underline; underline.setFontUnderline(true);
-  setFormat(Underline, underline, Settings::Default);
-
-  // All other formats should be defined in derived classes.
+  emit changed();
 }
 
-UiStyle::~ UiStyle() {
-  qDeleteAll(_cachedFontMetrics);
-}
+QString UiStyle::loadStyleSheet(const QString &styleSheet, bool shouldExist) {
+  QString ss = styleSheet;
+  if(ss.startsWith("file:///")) {
+    ss.remove(0, 8);
+    if(ss.isEmpty())
+      return QString();
 
-void UiStyle::setFormat(FormatType ftype, QTextCharFormat fmt, Settings::Mode mode) {
-  if(mode == Settings::Default) {
-    _defaultFormats[ftype] = fmt;
-  } else {
-    UiStyleSettings s(_settingsKey);
-    if(fmt != _defaultFormats[ftype]) {
-      _customFormats[ftype] = fmt;
-      s.setCustomFormat(ftype, fmt);
+    QFile file(ss);
+    if(file.open(QFile::ReadOnly)) {
+      QTextStream stream(&file);
+      ss = stream.readAll();
+      file.close();
     } else {
-      _customFormats.remove(ftype);
-      s.removeCustomFormat(ftype);
+      if(shouldExist)
+        qWarning() << "Could not open stylesheet file:" << file.fileName();
+      return QString();
     }
   }
-  // TODO: invalidate only affected cached formats... if that's possible with less overhead than just rebuilding them
-  _cachedFormats.clear();
-  _cachedFontMetrics.clear();
+  return ss;
 }
 
-void UiStyle::setSenderAutoColor( bool state ) {
-  _senderAutoColor = state;
-  UiStyleSettings s(_settingsKey);
-  s.setValue("Colors/SenderAutoColor", QVariant(state));
+void UiStyle::setTimestampFormatString(const QString &format) {
+  if(_timestampFormatString != format) {
+    _timestampFormatString = format;
+    // FIXME reload
+  }
 }
 
-QTextCharFormat UiStyle::format(FormatType ftype, Settings::Mode mode) const {
-  // Check for enabled sender auto coloring
-  if ( (ftype & 0x00000fff) == Sender && !_senderAutoColor ) {
-    // Just use the default sender style if auto coloring is disabled
-    ftype = Sender;
+/******** ItemView Styling *******/
+
+void UiStyle::showItemViewIconsChanged() {
+  UiStyleSettings s;
+  _showBufferViewIcons = _showNickViewIcons = s.value("ShowItemViewIcons").toBool();
+}
+
+QVariant UiStyle::bufferViewItemData(const QModelIndex &index, int role) const {
+  BufferInfo::Type type = (BufferInfo::Type)index.data(NetworkModel::BufferTypeRole).toInt();
+  bool isActive = index.data(NetworkModel::ItemActiveRole).toBool();
+
+  if(role == Qt::DecorationRole) {
+    if(!_showBufferViewIcons)
+      return QVariant();
+
+    switch(type) {
+      case BufferInfo::ChannelBuffer:
+        if(isActive)
+          return _channelJoinedIcon;
+        else
+          return _channelPartedIcon;
+      case BufferInfo::QueryBuffer:
+        if(!isActive)
+          return _userOfflineIcon;
+        if(index.data(NetworkModel::UserAwayRole).toBool())
+          return _userAwayIcon;
+        else
+          return _userOnlineIcon;
+      default:
+        return QVariant();
+    }
   }
 
-  if(mode == Settings::Custom && _customFormats.contains(ftype)) return _customFormats.value(ftype);
-  else return _defaultFormats.value(ftype, QTextCharFormat());
-}
-
-// NOTE: This function is intimately tied to the values in FormatType. Don't change this
-//       until you _really_ know what you do!
-QTextCharFormat UiStyle::mergedFormat(quint32 ftype) {
-  if(_cachedFormats.contains(ftype)) return _cachedFormats.value(ftype);
-  if(ftype == Invalid) return QTextCharFormat();
-  // Now we construct the merged format, starting with the default
-  QTextCharFormat fmt = format(None);
-  // First: general message format
-  fmt.merge(format((FormatType)(ftype & 0x0f)));
-  // now more specific ones
-  for(quint32 mask = 0x0010; mask <= 0x2000; mask <<= 1) {
-    if(ftype & mask) fmt.merge(format((FormatType)mask));
+  quint32 fmtType = BufferViewItem;
+  switch(type) {
+    case BufferInfo::StatusBuffer:
+      fmtType |= NetworkItem;
+      break;
+    case BufferInfo::ChannelBuffer:
+      fmtType |= ChannelBufferItem;
+      break;
+    case BufferInfo::QueryBuffer:
+      fmtType |= QueryBufferItem;
+      break;
+    default:
+      return QVariant();
   }
-  // color codes!
-  if(ftype & 0x00400000) fmt.merge(format((FormatType)(ftype & 0x0f400000))); // foreground
-  if(ftype & 0x00800000) fmt.merge(format((FormatType)(ftype & 0xf0800000))); // background
-  // Sender auto colors
-  if((ftype & 0xfff) == 0x200 && (ftype & 0xff000200) != 0x200) fmt.merge(format((FormatType)(ftype & 0xff000200)));
-  // URL
-  if(ftype & Url) fmt.merge(format(Url));
-  return _cachedFormats[ftype] = fmt;
+
+  QTextCharFormat fmt = _listItemFormats.value(BufferViewItem);
+  fmt.merge(_listItemFormats.value(fmtType));
+
+  BufferInfo::ActivityLevel activity = (BufferInfo::ActivityLevel)index.data(NetworkModel::BufferActivityRole).toInt();
+  if(activity & BufferInfo::Highlight) {
+    fmt.merge(_listItemFormats.value(BufferViewItem | HighlightedBuffer));
+    fmt.merge(_listItemFormats.value(fmtType | HighlightedBuffer));
+  } else if(activity & BufferInfo::NewMessage) {
+    fmt.merge(_listItemFormats.value(BufferViewItem | UnreadBuffer));
+    fmt.merge(_listItemFormats.value(fmtType | UnreadBuffer));
+  } else if(activity & BufferInfo::OtherActivity) {
+    fmt.merge(_listItemFormats.value(BufferViewItem | ActiveBuffer));
+    fmt.merge(_listItemFormats.value(fmtType | ActiveBuffer));
+  } else if(!isActive) {
+    fmt.merge(_listItemFormats.value(BufferViewItem | InactiveBuffer));
+    fmt.merge(_listItemFormats.value(fmtType | InactiveBuffer));
+  } else if(index.data(NetworkModel::UserAwayRole).toBool()) {
+    fmt.merge(_listItemFormats.value(BufferViewItem | UserAway));
+    fmt.merge(_listItemFormats.value(fmtType | UserAway));
+  }
+
+  return itemData(role, fmt);
 }
 
-QFontMetricsF *UiStyle::fontMetrics(quint32 ftype) {
+QVariant UiStyle::nickViewItemData(const QModelIndex &index, int role) const {
+  NetworkModel::ItemType type = (NetworkModel::ItemType)index.data(NetworkModel::ItemTypeRole).toInt();
+
+  if(role == Qt::DecorationRole) {
+    if(!_showNickViewIcons)
+      return QVariant();
+
+    switch(type) {
+      case NetworkModel::UserCategoryItemType:
+      {
+        int categoryId = index.data(TreeModel::SortRole).toInt();
+        if(categoryId <= _opIconLimit)
+          return _categoryOpIcon;
+        if(categoryId <= _voiceIconLimit)
+          return _categoryVoiceIcon;
+        return _userOnlineIcon;
+      }
+      case NetworkModel::IrcUserItemType:
+        if(index.data(NetworkModel::ItemActiveRole).toBool())
+          return _userOnlineIcon;
+        else
+          return _userAwayIcon;
+      default:
+        return QVariant();
+    }
+  }
+
+  QTextCharFormat fmt = _listItemFormats.value(NickViewItem);
+
+  switch(type) {
+    case NetworkModel::IrcUserItemType:
+      fmt.merge(_listItemFormats.value(NickViewItem | IrcUserItem));
+      if(!index.data(NetworkModel::ItemActiveRole).toBool()) {
+        fmt.merge(_listItemFormats.value(NickViewItem | UserAway));
+        fmt.merge(_listItemFormats.value(NickViewItem | IrcUserItem | UserAway));
+      }
+      break;
+    case NetworkModel::UserCategoryItemType:
+      fmt.merge(_listItemFormats.value(NickViewItem | UserCategoryItem));
+      break;
+    default:
+      return QVariant();
+  }
+
+  return itemData(role, fmt);
+}
+
+QVariant UiStyle::itemData(int role, const QTextCharFormat &format) const {
+  switch(role) {
+    case Qt::FontRole:
+      return format.font();
+    case Qt::ForegroundRole:
+      return format.property(QTextFormat::ForegroundBrush);
+    case Qt::BackgroundRole:
+      return format.property(QTextFormat::BackgroundBrush);
+    default:
+      return QVariant();
+  }
+}
+
+/******** Caching *******/
+
+QTextCharFormat UiStyle::format(quint64 key) const {
+  return _formats.value(key, QTextCharFormat());
+}
+
+QTextCharFormat UiStyle::cachedFormat(quint32 formatType, quint32 messageLabel) const {
+  return _formatCache.value(formatType | ((quint64)messageLabel << 32), QTextCharFormat());
+}
+
+void UiStyle::setCachedFormat(const QTextCharFormat &format, quint32 formatType, quint32 messageLabel) {
+  _formatCache[formatType | ((quint64)messageLabel << 32)] = format;
+}
+
+QFontMetricsF *UiStyle::fontMetrics(quint32 ftype, quint32 label) {
   // QFontMetricsF is not assignable, so we need to store pointers :/
-  if(_cachedFontMetrics.contains(ftype)) return _cachedFontMetrics.value(ftype);
-  return (_cachedFontMetrics[ftype] = new QFontMetricsF(mergedFormat(ftype).font()));
+  quint64 key = ftype | ((quint64)label << 32);
+
+  if(_metricsCache.contains(key))
+    return _metricsCache.value(key);
+
+  return (_metricsCache[key] = new QFontMetricsF(format(ftype, label).font()));
 }
 
-UiStyle::FormatType UiStyle::formatType(const QString & code) const {
+/******** Generate formats ********/
+
+// NOTE: This and the following functions are intimately tied to the values in FormatType. Don't change this
+//       until you _really_ know what you do!
+QTextCharFormat UiStyle::format(quint32 ftype, quint32 label_) {
+  if(ftype == Invalid)
+    return QTextCharFormat();
+
+  quint64 label = (quint64)label_ << 32;
+
+  // check if we have exactly this format readily cached already
+  QTextCharFormat fmt = cachedFormat(ftype, label_);
+  if(fmt.properties().count())
+    return fmt;
+
+  mergeFormat(fmt, ftype, label & Q_UINT64_C(0xffff000000000000));
+
+  for(quint64 mask = Q_UINT64_C(0x0000000100000000); mask <= (quint64)Selected << 32; mask <<=1) {
+    if(label & mask)
+      mergeFormat(fmt, ftype, mask | Q_UINT64_C(0xffff000000000000));
+  }
+
+  setCachedFormat(fmt, ftype, label_);
+  return fmt;
+}
+
+void UiStyle::mergeFormat(QTextCharFormat &fmt, quint32 ftype, quint64 label) {
+  mergeSubElementFormat(fmt, ftype & 0x00ff, label);
+
+  // TODO: allow combinations for mirc formats and colors (each), e.g. setting a special format for "bold and italic"
+  //       or "foreground 01 and background 03"
+  if((ftype & 0xfff00)) { // element format
+    for(quint32 mask = 0x00100; mask <= 0x40000; mask <<= 1) {
+      if(ftype & mask) {
+        mergeSubElementFormat(fmt, ftype & (mask | 0xff), label);
+      }
+    }
+  }
+
+  // Now we handle color codes
+  // We assume that those can't be combined with subelement and message types.
+  if(ftype & 0x00400000)
+    mergeSubElementFormat(fmt, ftype & 0x0f400000, label); // foreground
+  if(ftype & 0x00800000)
+    mergeSubElementFormat(fmt, ftype & 0xf0800000, label); // background
+  if((ftype & 0x00c00000) == 0x00c00000)
+    mergeSubElementFormat(fmt, ftype & 0xffc00000, label); // combination
+
+  // URL
+  if(ftype & Url)
+    mergeSubElementFormat(fmt, ftype & (Url | 0x000000ff), label);
+}
+
+// Merge a subelement format into an existing message format
+void UiStyle::mergeSubElementFormat(QTextCharFormat& fmt, quint32 ftype, quint64 label) {
+  quint64 key = ftype | label;
+  fmt.merge(format(key & Q_UINT64_C(0x0000ffffffffff00)));  // label + subelement
+  fmt.merge(format(key & Q_UINT64_C(0x0000ffffffffffff)));  // label + subelement + msgtype
+  fmt.merge(format(key & Q_UINT64_C(0xffffffffffffff00)));  // label + subelement + nickhash
+  fmt.merge(format(key & Q_UINT64_C(0xffffffffffffffff)));  // label + subelement + nickhash + msgtype
+}
+
+UiStyle::FormatType UiStyle::formatType(Message::Type msgType) {
+  switch(msgType) {
+    case Message::Plain:
+      return PlainMsg;
+    case Message::Notice:
+      return NoticeMsg;
+    case Message::Action:
+      return ActionMsg;
+    case Message::Nick:
+      return NickMsg;
+    case Message::Mode:
+      return ModeMsg;
+    case Message::Join:
+      return JoinMsg;
+    case Message::Part:
+      return PartMsg;
+    case Message::Quit:
+      return QuitMsg;
+    case Message::Kick:
+      return KickMsg;
+    case Message::Kill:
+      return KillMsg;
+    case Message::Server:
+      return ServerMsg;
+    case Message::Info:
+      return InfoMsg;
+    case Message::Error:
+      return ErrorMsg;
+    case Message::DayChange:
+      return DayChangeMsg;
+    case Message::Topic:
+      return TopicMsg;
+    case Message::NetsplitJoin:
+      return NetsplitJoinMsg;
+    case Message::NetsplitQuit:
+      return NetsplitQuitMsg;
+  }
+  //Q_ASSERT(false); // we need to handle all message types
+  qWarning() << Q_FUNC_INFO << "Unknown message type:" << msgType;
+  return ErrorMsg;
+}
+
+UiStyle::FormatType UiStyle::formatType(const QString & code) {
   if(_formatCodes.contains(code)) return _formatCodes.value(code);
   return Invalid;
 }
 
-QString UiStyle::formatCode(FormatType ftype) const {
+QString UiStyle::formatCode(FormatType ftype) {
   return _formatCodes.key(ftype);
 }
 
-QList<QTextLayout::FormatRange> UiStyle::toTextLayoutList(const FormatList &formatList, int textLength) {
+QList<QTextLayout::FormatRange> UiStyle::toTextLayoutList(const FormatList &formatList, int textLength, quint32 messageLabel) {
   QList<QTextLayout::FormatRange> formatRanges;
   QTextLayout::FormatRange range;
   int i = 0;
   for(i = 0; i < formatList.count(); i++) {
-    range.format = mergedFormat(formatList.at(i).second);
+    range.format = format(formatList.at(i).second, messageLabel);
     range.start = formatList.at(i).first;
     if(i > 0) formatRanges.last().length = range.start - formatRanges.last().start;
     formatRanges.append(range);
@@ -201,15 +428,15 @@ QList<QTextLayout::FormatRange> UiStyle::toTextLayoutList(const FormatList &form
 
 // This method expects a well-formatted string, there is no error checking!
 // Since we create those ourselves, we should be pretty safe that nobody does something crappy here.
-UiStyle::StyledString UiStyle::styleString(const QString &s_) {
+UiStyle::StyledString UiStyle::styleString(const QString &s_, quint32 baseFormat) {
   QString s = s_;
   if(s.length() > 65535) {
     qWarning() << QString("String too long to be styled: %1").arg(s);
     return StyledString();
   }
   StyledString result;
-  result.formatList.append(qMakePair((quint16)0, (quint32)None));
-  quint32 curfmt = (quint32)None;
+  result.formatList.append(qMakePair((quint16)0, baseFormat));
+  quint32 curfmt = baseFormat;
   int pos = 0; quint16 length = 0;
   for(;;) {
     pos = s.indexOf('%', pos);
@@ -229,15 +456,15 @@ UiStyle::StyledString UiStyle::styleString(const QString &s_) {
         color &= 0x0f;
         if(s[pos+3] == 'f') {
           curfmt &= 0xf0ffffff;
-          curfmt |= (color << 24) | 0x00400000;
+          curfmt |= (quint32)(color << 24) | 0x00400000;
         } else {
           curfmt &= 0x0fffffff;
-          curfmt |= (color << 28) | 0x00800000;
+          curfmt |= (quint32)(color << 28) | 0x00800000;
         }
         length = 6;
       }
     } else if(s[pos+1] == 'O') { // reset formatting
-      curfmt &= 0x0000000f; // we keep message type-specific formatting
+      curfmt &= 0x000000ff; // we keep message type-specific formatting
       length = 2;
     } else if(s[pos+1] == 'R') { // reverse
       // TODO: implement reverse formatting
@@ -264,7 +491,7 @@ UiStyle::StyledString UiStyle::styleString(const QString &s_) {
   return result;
 }
 
-QString UiStyle::mircToInternal(const QString &mirc_) const {
+QString UiStyle::mircToInternal(const QString &mirc_) {
   QString mirc = mirc_;
   mirc.replace('%', "%%");      // escape % just to be sure
   mirc.replace('\x02', "%B");
@@ -312,62 +539,133 @@ QString UiStyle::mircToInternal(const QString &mirc_) const {
 UiStyle::StyledMessage::StyledMessage(const Message &msg)
   : Message(msg)
 {
+  if(type() == Message::Plain)
+    _senderHash = 0xff;
+  else
+    _senderHash = 0x00;  // this means we never compute the hash for msgs that aren't plain
 }
 
-void UiStyle::StyledMessage::style(UiStyle *style) const {
+void UiStyle::StyledMessage::style() const {
   QString user = userFromMask(sender());
   QString host = hostFromMask(sender());
   QString nick = nickFromMask(sender());
-  QString txt = style->mircToInternal(contents());
+  QString txt = UiStyle::mircToInternal(contents());
   QString bufferName = bufferInfo().bufferName();
   bufferName.replace('%', "%%"); // well, you _can_ have a % in a buffername apparently... -_-
+  const int maxNetsplitNicks = 15;
 
   QString t;
   switch(type()) {
     case Message::Plain:
-      t = tr("%D0%1").arg(txt); break;
+      //: Plain Message
+      t = tr("%1").arg(txt); break;
     case Message::Notice:
-      t = tr("%Dn%1").arg(txt); break;
-    case Message::Server:
-      t = tr("%Ds%1").arg(txt); break;
-    case Message::Error:
-      t = tr("%De%1").arg(txt); break;
+      //: Notice Message
+      t = tr("%1").arg(txt); break;
+    case Message::Action:
+      //: Action Message
+      t = tr("%DN%1%DN %2").arg(nick).arg(txt);
+      break;
+    case Message::Nick:
+      //: Nick Message
+      if(nick == contents()) t = tr("You are now known as %DN%1%DN").arg(txt);
+      else t = tr("%DN%1%DN is now known as %DN%2%DN").arg(nick, txt);
+      break;
+    case Message::Mode:
+      //: Mode Message
+      if(nick.isEmpty()) t = tr("User mode: %DM%1%DM").arg(txt);
+      else t = tr("Mode %DM%1%DM by %DN%2%DN").arg(txt, nick);
+      break;
     case Message::Join:
-      t = tr("%Dj%DN%1%DN %DH(%2@%3)%DH has joined %DC%4%DC").arg(nick, user, host, bufferName); break;
+      //: Join Message
+      t = tr("%DN%1%DN %DH(%2@%3)%DH has joined %DC%4%DC").arg(nick, user, host, bufferName); break;
     case Message::Part:
-      t = tr("%Dp%DN%1%DN %DH(%2@%3)%DH has left %DC%4%DC").arg(nick, user, host, bufferName);
+      //: Part Message
+      t = tr("%DN%1%DN %DH(%2@%3)%DH has left %DC%4%DC").arg(nick, user, host, bufferName);
       if(!txt.isEmpty()) t = QString("%1 (%2)").arg(t).arg(txt);
       break;
     case Message::Quit:
-      t = tr("%Dq%DN%1%DN %DH(%2@%3)%DH has quit").arg(nick, user, host);
+      //: Quit Message
+      t = tr("%DN%1%DN %DH(%2@%3)%DH has quit").arg(nick, user, host);
       if(!txt.isEmpty()) t = QString("%1 (%2)").arg(t).arg(txt);
       break;
     case Message::Kick: {
         QString victim = txt.section(" ", 0, 0);
         QString kickmsg = txt.section(" ", 1);
-        t = tr("%Dk%DN%1%DN has kicked %DN%2%DN from %DC%3%DC").arg(nick).arg(victim).arg(bufferName);
+        //: Kick Message
+        t = tr("%DN%1%DN has kicked %DN%2%DN from %DC%3%DC").arg(nick).arg(victim).arg(bufferName);
         if(!kickmsg.isEmpty()) t = QString("%1 (%2)").arg(t).arg(kickmsg);
       }
       break;
-    case Message::Nick:
-      if(nick == contents()) t = tr("%DrYou are now known as %DN%1%DN").arg(txt);
-      else t = tr("%Dr%DN%1%DN is now known as %DN%2%DN").arg(nick, txt);
+    //case Message::Kill: FIXME
+
+    case Message::Server:
+      //: Server Message
+      t = tr("%1").arg(txt); break;
+    case Message::Info:
+      //: Info Message
+      t = tr("%1").arg(txt); break;
+    case Message::Error:
+      //: Error Message
+      t = tr("%1").arg(txt); break;
+    case Message::DayChange:
+      //: Day Change Message
+      t = tr("{Day changed to %1}").arg(timestamp().toString());
       break;
-    case Message::Mode:
-      if(nick.isEmpty()) t = tr("%DmUser mode: %DM%1%DM").arg(txt);
-      else t = tr("%DmMode %DM%1%DM by %DN%2%DN").arg(txt, nick);
+    case Message::Topic:
+      //: Topic Message
+      t = tr("%1").arg(txt); break;
+    case Message::NetsplitJoin: {
+      QStringList users = txt.split(":");
+      QStringList servers = users.takeLast().split(" ");
+
+      for(int i = 0; i < users.count() && i < maxNetsplitNicks; i++)
+        users[i] = nickFromMask(users.at(i));
+
+      t = tr("Netsplit between %DH%1%DH and %DH%2%DH ended. Users joined: ").arg(servers.at(0),servers.at(1));
+      if(users.count() <= maxNetsplitNicks)
+        t.append(QString("%DN%1%DN").arg(users.join(", ")));
+      else
+        t.append(tr("%DN%1%DN (%2 more)").arg(static_cast<QStringList>(users.mid(0, maxNetsplitNicks)).join(", ")).arg(users.count() - maxNetsplitNicks));
+      }
       break;
-    case Message::Action:
-      t = tr("%Da%DN%1%DN %2").arg(nick).arg(txt);
+    case Message::NetsplitQuit: {
+      QStringList users = txt.split(":");
+      QStringList servers = users.takeLast().split(" ");
+
+      for(int i = 0; i < users.count() && i < maxNetsplitNicks; i++)
+        users[i] = nickFromMask(users.at(i));
+
+      t = tr("Netsplit between %DH%1%DH and %DH%2%DH. Users quit: ").arg(servers.at(0),servers.at(1));
+
+      if(users.count() <= maxNetsplitNicks)
+        t.append(QString("%DN%1%DN").arg(users.join(", ")));
+      else
+        t.append(tr("%DN%1%DN (%2 more)").arg(static_cast<QStringList>(users.mid(0, maxNetsplitNicks)).join(", ")).arg(users.count() - maxNetsplitNicks));
+      }
       break;
     default:
-      t = tr("%De[%1]").arg(txt);
+      t = tr("[%1]").arg(txt);
   }
-  _contents = style->styleString(t);
+  _contents = UiStyle::styleString(t, UiStyle::formatType(type()));
+}
+
+const QString &UiStyle::StyledMessage::plainContents() const {
+  if(_contents.plainText.isNull())
+    style();
+
+  return _contents.plainText;
+}
+
+const UiStyle::FormatList &UiStyle::StyledMessage::contentsFormatList() const {
+  if(_contents.plainText.isNull())
+    style();
+
+  return _contents.formatList;
 }
 
 QString UiStyle::StyledMessage::decoratedTimestamp() const {
-  return QString("[%1]").arg(timestamp().toLocalTime().toString("hh:mm:ss"));
+  return timestamp().toLocalTime().toString(UiStyle::timestampFormatString());
 }
 
 QString UiStyle::StyledMessage::plainSender() const {
@@ -386,10 +684,12 @@ QString UiStyle::StyledMessage::decoratedSender() const {
       return tr("<%1>").arg(plainSender()); break;
     case Message::Notice:
       return tr("[%1]").arg(plainSender()); break;
-    case Message::Server:
-      return tr("*"); break;
-    case Message::Error:
-      return tr("*"); break;
+    case Message::Action:
+      return tr("-*-"); break;
+    case Message::Nick:
+      return tr("<->"); break;
+    case Message::Mode:
+      return tr("***"); break;
     case Message::Join:
       return tr("-->"); break;
     case Message::Part:
@@ -398,51 +698,43 @@ QString UiStyle::StyledMessage::decoratedSender() const {
       return tr("<--"); break;
     case Message::Kick:
       return tr("<-*"); break;
-    case Message::Nick:
-      return tr("<->"); break;
-    case Message::Mode:
-      return tr("***"); break;
-    case Message::Action:
-      return tr("-*-"); break;
+    case Message::Kill:
+      return tr("<-x"); break;
+    case Message::Server:
+      return tr("*"); break;
+    case Message::Info:
+      return tr("*"); break;
+    case Message::Error:
+      return tr("*"); break;
+    case Message::DayChange:
+      return tr("-"); break;
+    case Message::Topic:
+      return tr("*"); break;
+    case Message::NetsplitJoin:
+      return tr("=>"); break;
+    case Message::NetsplitQuit:
+      return tr("<="); break;
     default:
       return tr("%1").arg(plainSender());
   }
 }
 
-UiStyle::FormatType UiStyle::StyledMessage::senderFormat() const {
-  quint16 hash;
-  switch(type()) {
-    case Message::Plain:
-      // To produce random like but stable nick colorings some sort of hashing should work best.
-      // In this case we just use the qt function qChecksum which produces a
-      // CRC16 hash. This should be fast and 16 bits are more than enough.
-      hash = qChecksum(sender().toAscii().data(), sender().toAscii().size());
-      return (UiStyle::FormatType)((((hash % 12) + 1) << 24) + 0x200); // FIXME: amount of sender colors hardwired
-    case Message::Notice:
-      return UiStyle::NoticeMsg; break;
-    case Message::Server:
-      return UiStyle::ServerMsg; break;
-    case Message::Error:
-      return UiStyle::ErrorMsg; break;
-    case Message::Join:
-      return UiStyle::JoinMsg; break;
-    case Message::Part:
-      return UiStyle::PartMsg; break;
-    case Message::Quit:
-      return UiStyle::QuitMsg; break;
-    case Message::Kick:
-      return UiStyle::KickMsg; break;
-    case Message::Nick:
-      return UiStyle::RenameMsg; break;
-    case Message::Mode:
-      return UiStyle::ModeMsg; break;
-    case Message::Action:
-      return UiStyle::ActionMsg; break;
-    default:
-      return UiStyle::ErrorMsg;
-  }
-}
+// FIXME hardcoded to 16 sender hashes
+quint8 UiStyle::StyledMessage::senderHash() const {
+  if(_senderHash != 0xff)
+    return _senderHash;
 
+  QString nick = nickFromMask(sender()).toLower();
+  if(!nick.isEmpty()) {
+    int chopCount = 0;
+    while(chopCount < nick.size() && nick.at(nick.count() - 1 - chopCount) == '_')
+      chopCount++;
+    if(chopCount < nick.size())
+      nick.chop(chopCount);
+  }
+  quint16 hash = qChecksum(nick.toAscii().data(), nick.toAscii().size());
+  return (_senderHash = (hash & 0xf) + 1);
+}
 
 /***********************************************************************************/
 

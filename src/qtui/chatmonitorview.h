@@ -38,6 +38,7 @@ protected:
 private slots:
   void showFieldsChanged(bool checked);
   void showSettingsPage();
+  virtual void coreConnectionStateChanged(bool connected);
 
 protected:
   inline ChatMonitorFilter *filter() const { return _filter; }

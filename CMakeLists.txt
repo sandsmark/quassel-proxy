@@ -76,6 +76,15 @@ if(WIN32)
   set(EMBED_DATA ON)
 endif(WIN32)
 
+# For static builds, arbitrary extra libs might need to be linked
+# Define a comma-separated list here
+# e.g. for pgsql, we need -DLINK_EXTRA=pq;crypt
+set(LINK_EXTRA "" CACHE STRING "Semicolon-separated list of libraries to be linked")
+if(LINK_EXTRA)
+  string(REPLACE "," ";" LINK_EXTRA ${LINK_EXTRA})
+  link_libraries(${LINK_EXTRA})
+endif(LINK_EXTRA)
+
 # Build Type
 # We need to make sure it's not empty
 # Supported: Release, RelWithDebugInfo, Debug, Debugfull
@@ -95,13 +104,18 @@ endif(NOT CMAKE_BUILD_TYPE)
 # Enable various flags on gcc
 if(CMAKE_COMPILER_IS_GNUCXX)
   # Let's just hope that all gccs support these options and skip the tests...
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ansi -Wall -Wextra -Wnon-virtual-dtor")
+  # -fno-strict-aliasing is needed apparently for Qt < 4.6
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ansi -Wall -Wextra -Wnon-virtual-dtor -fno-strict-aliasing")
   set(CMAKE_CXX_FLAGS_RELWITHDEBUGINFO "-O2")
   set(CMAKE_CXX_FLAGS_DEBUG "-g -fno-reorder-blocks -fno-schedule-insns -fno-inline")
   set(CMAKE_CXX_FLAGS_DEBUGFULL "-g3")
 endif(CMAKE_COMPILER_IS_GNUCXX)
 
-set(QT_MIN_VERSION "4.4.0")
+if(WANT_MONO OR WANT_QTCLIENT)
+  set(QT_MIN_VERSION "4.4.1") # Client crashes often with 4.4.0
+else(WANT_MONO OR WANT_QTCLIENT)
+  set(QT_MIN_VERSION "4.4.0")
+endif(WANT_MONO OR WANT_QTCLIENT)
 
 if(APPLE AND DEPLOY)
   set(CMAKE_OSX_ARCHITECTURES "i386;ppc")
@@ -254,8 +268,6 @@ if(WIN32)
   if(HAVE_SSL)
      link_libraries(${OPENSSL_LIBRARIES} libeay32MD)
   endif(HAVE_SSL)
-
-  set(RC_WIN32 ../pics/win32.rc)  # for app icons on windows
 endif(WIN32)
 
 if(STATIC)

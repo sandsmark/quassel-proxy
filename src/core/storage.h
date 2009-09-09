@@ -59,6 +59,14 @@ public slots:
   /** \return A string that can be displayed by the client to describe the storage backend */
   virtual QString description() const = 0;
 
+  //! Returns a list of properties required to use the storage backend
+  virtual QStringList setupKeys() const = 0;
+
+  //! Returns a map where the keys are are properties to use the storage backend
+  /*  the values are QVariants with default values */
+  virtual QVariantMap setupDefaults() const = 0;
+
+
   //! Setup the storage provider.
   /** This prepares the storage provider (e.g. create tables, etc.) for use within Quassel.
    *  \param settings   Hostname, port, username, password, ...
@@ -67,7 +75,7 @@ public slots:
   virtual bool setup(const QVariantMap &settings = QVariantMap()) = 0;
 
   //! Initialize the storage provider
-  /** \param settings   Hostname, port, username, password, ...  
+  /** \param settings   Hostname, port, username, password, ...
    *  \return the State the storage backend is now in (see Storage::State)
    */
   virtual State init(const QVariantMap &settings = QVariantMap()) = 0;
@@ -93,8 +101,9 @@ public slots:
   //! Update a core user's password.
   /** \param user     The user's id
    *  \param password The user's new password
+   *  \return true on success.
    */
-  virtual void updateUser(UserId user, const QString &password) = 0;
+  virtual bool updateUser(UserId user, const QString &password) = 0;
 
   //! Rename a user
   /** \param user     The user's id
@@ -108,6 +117,12 @@ public slots:
    *  \return A valid UserId if the password matches the username; 0 else
    */
   virtual UserId validateUser(const QString &user, const QString &password) = 0;
+
+  //! Check if a user with given username exists. Do not use for login purposes!
+  /** \param username  The username to validate
+   *  \return A valid UserId if the user exists; 0 else
+   */
+  virtual UserId getUserId(const QString &username) = 0;
 
   //! Determine the UserId of the internal user
   /** \return A valid UserId if the password matches the username; 0 else
@@ -126,7 +141,7 @@ public slots:
    * \param data         The Value
    */
   virtual void setUserSetting(UserId userId, const QString &settingName, const QVariant &data) = 0;
-  
+
   //! Retrieve a persistent user setting
   /**
    * \param userId       The users Id
@@ -141,7 +156,7 @@ public slots:
   virtual bool updateIdentity(UserId user, const CoreIdentity &identity) = 0;
   virtual void removeIdentity(UserId user, IdentityId identityId) = 0;
   virtual QList<CoreIdentity> identities(UserId user) = 0;
-  
+
   /* Network handling */
 
   //! Create a new Network in the storage backend and return it unique Id
@@ -175,13 +190,6 @@ public slots:
    *  \return QList<NetworkInfo>.
    */
   virtual QList<NetworkInfo> networks(UserId user) = 0;
-  
-  //! Get the unique NetworkId of the network for a user.
-  /** \param user    The core user who owns this network
-   *  \param network The network name
-   *  \return The NetworkId corresponding to the given network, or 0 if not found
-   */
-  virtual NetworkId getNetworkId(UserId user, const QString &network) = 0;
 
   //! Get a list of Networks to restore
   /** Return a list of networks the user was connected at the time of core shutdown
@@ -341,14 +349,20 @@ public slots:
    */
   virtual QHash<BufferId, MsgId> bufferLastSeenMsgIds(UserId user) = 0;
 
-  
+
   /* Message handling */
 
-  //! Store a Message in the backlog.
+  //! Store a Message in the storage backend and set its unique Id.
   /** \param msg  The message object to be stored
-   *  \return The globally unique id for the stored message
+   *  \return true on success
    */
-  virtual MsgId logMessage(Message msg) = 0;
+  virtual bool logMessage(Message &msg) = 0;
+
+  //! Store a list of Messages in the storage backend and set their unique Id.
+  /** \param msgs The list message objects to be stored
+   *  \return true on success
+   */
+  virtual bool logMessages(MessageList &msgs) = 0;
 
   //! Request a certain number messages stored in a given buffer.
   /** \param buffer   The buffer we request messages from

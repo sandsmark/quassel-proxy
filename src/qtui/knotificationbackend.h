@@ -21,6 +21,8 @@
 #ifndef KNOTIFICATIONBACKEND_H_
 #define KNOTIFICATIONBACKEND_H_
 
+#include <KSystemTrayIcon>
+
 #include "abstractnotificationbackend.h"
 #include "settingspage.h"
 
@@ -39,9 +41,17 @@ public:
 
 private slots:
   void notificationActivated();
+  void notificationActivated(QSystemTrayIcon::ActivationReason);
+  void notificationActivated(uint notificationId);
+  void notificationClosed();
 
 private:
   class ConfigWidget;
+
+  void removeNotificationById(uint id);
+
+  QHash<KNotification *, uint> _notificationIds;
+  uint _lastNotificationId;
 };
 
 class KNotificationBackend::ConfigWidget : public SettingsPage {

@@ -24,7 +24,7 @@
 #include <QAbstractItemModel>
 #include <QPointer>
 
-#include "aliasmanager.h"
+#include "clientaliasmanager.h"
 
 class AliasesModel : public QAbstractItemModel {
   Q_OBJECT
@@ -43,10 +43,11 @@ public:
 
   inline QModelIndex parent(const QModelIndex &) const { return QModelIndex(); }
 
-  inline int rowCount(const QModelIndex &parent = QModelIndex()) const { Q_UNUSED(parent) return aliasManager().count(); }
-  inline int columnCount(const QModelIndex &parent = QModelIndex()) const { Q_UNUSED(parent) return 2; }
+  inline int rowCount(const QModelIndex &parent = QModelIndex()) const;
+  inline int columnCount(const QModelIndex &parent = QModelIndex()) const;
 
   inline bool configChanged() const { return _configChanged; }
+  inline bool isReady() const { return _modelReady; }
 
 public slots:
   void newAlias();
@@ -58,11 +59,11 @@ public slots:
 signals:
   void configChanged(bool);
   void modelReady(bool);
-  
+
 private:
-  AliasManager _aliasManager;
-  AliasManager _clonedAliasManager;
+  ClientAliasManager _clonedAliasManager;
   bool _configChanged;
+  bool _modelReady;
 
   const AliasManager &aliasManager() const;
   AliasManager &aliasManager();
@@ -73,5 +74,17 @@ private slots:
   void clientDisconnected();
   void initDone();
 };
+
+// Inlines
+int AliasesModel::rowCount(const QModelIndex &parent) const {
+  Q_UNUSED(parent);
+  return isReady() ? aliasManager().count() : 0;
+}
+
+int AliasesModel::columnCount(const QModelIndex &parent) const {
+  Q_UNUSED(parent);
+  return isReady() ? 2 : 0;
+}
+    
 
 #endif //ALIASESMODEL_H

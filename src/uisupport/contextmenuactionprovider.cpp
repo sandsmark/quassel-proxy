@@ -46,6 +46,7 @@ ContextMenuActionProvider::ContextMenuActionProvider(QObject *parent) : NetworkM
   registerAction(HideNick, tr("Nick Changes"), true);
   registerAction(HideMode, tr("Mode Changes"), true);
   registerAction(HideDayChange, tr("Day Changes"), true);
+  registerAction(HideTopic, tr("Topic Changes"), true);
   registerAction(HideApplyToAll, tr("Set as Default..."));
   registerAction(HideUseDefaults, tr("Use Defaults..."));
 
@@ -68,8 +69,8 @@ ContextMenuActionProvider::ContextMenuActionProvider(QObject *parent) : NetworkM
   registerAction(NickBan, SmallIcon("im-ban-user"), tr("Ban From Channel"));
   registerAction(NickKickBan, SmallIcon("im-ban-kick-user"), tr("Kick && Ban"));
 
-  registerAction(HideBufferTemporarily, tr("Hide Buffer(s) Temporarily"));
-  registerAction(HideBufferPermanently, tr("Hide Buffer(s) Permanently"));
+  registerAction(HideBufferTemporarily, tr("Hide Chat(s) Temporarily"));
+  registerAction(HideBufferPermanently, tr("Hide Chat(s) Permanently"));
   registerAction(ShowChannelList, tr("Show Channel List"));
   registerAction(ShowIgnoreList, tr("Show Ignore List"));
 
@@ -79,6 +80,7 @@ ContextMenuActionProvider::ContextMenuActionProvider(QObject *parent) : NetworkM
   hideEventsMenu->addAction(action(HideQuit));
   hideEventsMenu->addAction(action(HideNick));
   hideEventsMenu->addAction(action(HideMode));
+  hideEventsMenu->addAction(action(HideTopic));
   hideEventsMenu->addAction(action(HideDayChange));
   hideEventsMenu->addSeparator();
   hideEventsMenu->addAction(action(HideApplyToAll));
@@ -345,6 +347,7 @@ void ContextMenuActionProvider::addHideEventsMenu(QMenu *menu, int filter) {
   action(HideNick)->setChecked(filter & Message::Nick);
   action(HideMode)->setChecked(filter & Message::Mode);
   action(HideDayChange)->setChecked(filter & Message::DayChange);
+  action(HideTopic)->setChecked(filter & Message::Topic);
 
   menu->addAction(_hideEventsMenuAction);
 }

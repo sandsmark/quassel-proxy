@@ -22,6 +22,7 @@
 
 #include "action.h"
 #include "actioncollection.h"
+#include "bufferview.h"
 #include "client.h"
 #include "iconloader.h"
 #include "ircuser.h"
@@ -29,24 +30,56 @@
 #include "networkmodel.h"
 #include "qtui.h"
 #include "qtuisettings.h"
+#include "tabcompleter.h"
 
 InputWidget::InputWidget(QWidget *parent)
   : AbstractItemView(parent),
     _networkId(0)
 {
   ui.setupUi(this);
-  connect(ui.inputEdit, SIGNAL(sendText(QString)), this, SLOT(sendText(QString)));
+  connect(ui.inputEdit, SIGNAL(textEntered(QString)), this, SLOT(sendText(QString)));
   connect(ui.ownNick, SIGNAL(activated(QString)), this, SLOT(changeNick(QString)));
-  connect(this, SIGNAL(userInput(BufferInfo, QString)), Client::instance(), SIGNAL(sendInput(BufferInfo, QString)));
+
+  layout()->setAlignment(ui.ownNick, Qt::AlignBottom);
+  layout()->setAlignment(ui.inputEdit, Qt::AlignBottom);
+
   setFocusProxy(ui.inputEdit);
+  ui.ownNick->setFocusProxy(ui.inputEdit);
 
   ui.ownNick->setSizeAdjustPolicy(QComboBox::AdjustToContents);
   ui.ownNick->installEventFilter(new MouseWheelFilter(this));
   ui.inputEdit->installEventFilter(new JumpKeyHandler(this));
+  ui.inputEdit->installEventFilter(this);
 
-  QtUiStyleSettings s("Fonts");
-  s.notify("InputLine", this, SLOT(setCustomFont(QVariant)));
-  setCustomFont(s.value("InputLine", QFont()));
+  ui.inputEdit->setMinHeight(1);
+  ui.inputEdit->setMaxHeight(5);
+  ui.inputEdit->setMode(MultiLineEdit::MultiLine);
+  ui.inputEdit->setPasteProtectionEnabled(true);
+
+  new TabCompleter(ui.inputEdit);
+
+  UiStyleSettings fs("Fonts");
+  fs.notify("InputWidget", this, SLOT(setCustomFont(QVariant)));
+  setCustomFont(fs.value("InputWidget", QFont()));
+
+  UiSettings s("InputWidget");
+
+#ifdef HAVE_KDE
+  s.notify("EnableSpellCheck", this, SLOT(setEnableSpellCheck(QVariant)));
+  setEnableSpellCheck(s.value("EnableSpellCheck", false));
+#endif
+
+  s.notify("ShowNickSelector", this, SLOT(setShowNickSelector(QVariant)));
+  setShowNickSelector(s.value("ShowNickSelector", true));
+
+  s.notify("MaxNumLines", this, SLOT(setMaxLines(QVariant)));
+  setMaxLines(s.value("MaxNumLines", 5));
+
+  s.notify("EnableScrollBars", this, SLOT(setScrollBarsEnabled(QVariant)));
+  setScrollBarsEnabled(s.value("EnableScrollBars", true));
+
+  s.notify("EnableMultiLine", this, SLOT(setMultiLineEnabled(QVariant)));
+  setMultiLineEnabled(s.value("EnableMultiLine", true));
 
   ActionCollection *coll = QtUi::actionCollection();
 
@@ -63,7 +96,58 @@ void InputWidget::setCustomFont(const QVariant &v) {
   QFont font = v.value<QFont>();
   if(font.family().isEmpty())
     font = QApplication::font();
-  ui.inputEdit->setFont(font);
+  ui.inputEdit->setCustomFont(font);
+}
+
+void InputWidget::setEnableSpellCheck(const QVariant &v) {
+  ui.inputEdit->setSpellCheckEnabled(v.toBool());
+}
+
+void InputWidget::setShowNickSelector(const QVariant &v) {
+  ui.ownNick->setVisible(v.toBool());
+}
+
+void InputWidget::setMaxLines(const QVariant &v) {
+  ui.inputEdit->setMaxHeight(v.toInt());
+}
+
+void InputWidget::setScrollBarsEnabled(const QVariant &v) {
+  ui.inputEdit->setScrollBarsEnabled(v.toBool());
+}
+
+void InputWidget::setMultiLineEnabled(const QVariant &v) {
+  ui.inputEdit->setMode(v.toBool()? MultiLineEdit::MultiLine : MultiLineEdit::SingleLine);
+}
+
+bool InputWidget::eventFilter(QObject *watched, QEvent *event) {
+  if(event->type() != QEvent::KeyPress)
+    return false;
+
+  QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+
+  // keys from BufferView should be sent to (and focus) the input line
+  BufferView *view = qobject_cast<BufferView *>(watched);
+  if(view) {
+    if(keyEvent->text().length() == 1 && !(keyEvent->modifiers() & (Qt::ControlModifier ^ Qt::AltModifier)) ) { // normal key press
+      QChar c = keyEvent->text().at(0);
+      if(c.isLetterOrNumber() || c.isSpace() || c.isPunct() || c.isSymbol()) {
+        setFocus();
+        QCoreApplication::sendEvent(inputLine(), keyEvent);
+        return true;
+      }
+    }
+    return false;
+  } else if(watched == ui.inputEdit) {
+    if(keyEvent->matches(QKeySequence::Find)) {
+      QAction *act = GraphicalUi::actionCollection()->action("ToggleSearchBar");
+      if(act) {
+        act->toggle();
+        return true;
+      }
+    }
+    return false;
+  }
+  return false;
 }
 
 void InputWidget::currentChanged(const QModelIndex &current, const QModelIndex &previous) {
@@ -102,7 +186,7 @@ void InputWidget::rowsAboutToBeRemoved(const QModelIndex &parent, int start, int
 
 void InputWidget::updateEnabledState() {
   QModelIndex currentIndex = selectionModel()->currentIndex();
-  
+
   const Network *net = Client::networkModel()->networkByIndex(currentIndex);
   bool enabled = false;
   if(net) {
@@ -209,7 +293,7 @@ void InputWidget::updateNickSelector() const {
     if(!me->userModes().isEmpty())
       nicks[nickIdx] += QString(" (+%1)").arg(me->userModes());
   }
-      
+
   ui.ownNick->addItems(nicks);
 
   if(me && me->isAway())
@@ -226,11 +310,11 @@ void InputWidget::changeNick(const QString &newNick) const {
   // we reset the nick selecter as we have no confirmation yet, that this will succeed.
   // if the action succeeds it will be properly updated anyways.
   updateNickSelector();
-  emit userInput(BufferInfo::fakeStatusBuffer(net->networkId()), QString("/nick %1").arg(newNick));
+  Client::userInput(BufferInfo::fakeStatusBuffer(net->networkId()), QString("/NICK %1").arg(newNick));
 }
 
-void InputWidget::sendText(QString text) {
-  emit userInput(currentBufferInfo(), text);
+void InputWidget::sendText(const QString &text) const {
+  Client::userInput(currentBufferInfo(), text);
 }
 
 

@@ -25,6 +25,7 @@
 #include <QMenu>
 #include <QDockWidget>
 #include <QModelIndex>
+#include <QStyledItemDelegate>
 #include <QTreeView>
 #include <QPointer>
 
@@ -82,8 +83,6 @@ private slots:
   void on_configChanged();
   void on_layoutChanged();
 
-  void setCustomFont(const QVariant &font);
-
 private:
   QPointer<BufferViewConfig> _config;
 
@@ -98,7 +97,6 @@ private:
 // ******************************
 //  BufferViewDelgate
 // ******************************
-#include <QStyledItemDelegate>
 
 class BufferViewDelegate : public QStyledItemDelegate {
   Q_OBJECT
@@ -109,22 +107,7 @@ public:
 
 protected:
   virtual void customEvent(QEvent *event);
-  virtual void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const;
-
-private slots:
-  void colorsChanged();
-  void loadColors();
-
-private:
-  QColor _FgColorInactiveActivity;
-  QColor _FgColorNoActivity;
-  QColor _FgColorHighlightActivity;
-  QColor _FgColorNewMessageActivity;
-  QColor _FgColorOtherActivity;
-
-  bool _updateColors;
 };
-
 
 // ==============================
 //  BufferView Dock
@@ -135,6 +118,8 @@ class BufferViewDock : public QDockWidget {
 public:
   BufferViewDock(BufferViewConfig *config, QWidget *parent);
 
+  int bufferViewId() const;
+  BufferViewConfig *config() const;
   inline BufferView *bufferView() const { return qobject_cast<BufferView *>(widget()); }
 
 public slots:

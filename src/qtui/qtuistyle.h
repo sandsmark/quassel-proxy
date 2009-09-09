@@ -22,23 +22,31 @@
 #define QTUISTYLE_H_
 
 #include "uistyle.h"
+#include "qtuisettings.h"
 
 class QtUiStyle : public UiStyle {
+  Q_OBJECT
 
 public:
-  QtUiStyle();
+  QtUiStyle(QObject *parent = 0);
   virtual ~QtUiStyle();
 
   virtual inline qreal firstColumnSeparator() const { return 6; }
   virtual inline qreal secondColumnSeparator() const { return 6; }
-  virtual inline QColor highlightColor() const { return _highlightColor; }
-  virtual void setHighlightColor(const QColor &);
 
-protected:
-  void inline addSenderAutoColor( FormatType type, const QString name );
+public slots:
+  void generateSettingsQss() const;
+
+private slots:
+  void updateTimestampFormatString();
 
 private:
-  QColor _highlightColor;
+  QString fontDescription(const QFont &font) const;
+  QString color(const QString &key, UiSettings &settings) const;
+
+  QString msgTypeQss(const QString &msgType, const QString &key, UiSettings &settings) const;
+  QString senderQss(int i, UiSettings &settings) const;
+  QString chatListItemQss(const QString &state, const QString &key, UiSettings &settings) const;
 };
 
 #endif

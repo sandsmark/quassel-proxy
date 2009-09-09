@@ -232,11 +232,14 @@ void NetworkModelController::handleBufferAction(ActionType type, QAction *) {
     removeBuffers(indexList());
   } else {
 
+    QList<BufferInfo> bufferList; // create temp list because model indexes might change
     foreach(QModelIndex index, indexList()) {
       BufferInfo bufferInfo = index.data(NetworkModel::BufferInfoRole).value<BufferInfo>();
-      if(!bufferInfo.isValid())
-        continue;
+      if(bufferInfo.isValid())
+        bufferList << bufferInfo;
+    }
 
+    foreach(BufferInfo bufferInfo, bufferList) {
       switch(type) {
         case BufferJoin:
           Client::userInput(bufferInfo, QString("/JOIN %1").arg(bufferInfo.bufferName()));
@@ -273,6 +276,8 @@ void NetworkModelController::handleHideAction(ActionType type, QAction *action) 
     filter |= Message::Mode;
   if(NetworkModelController::action(HideDayChange)->isChecked())
     filter |= Message::DayChange;
+  if(NetworkModelController::action(HideTopic)->isChecked())
+    filter |= Message::Topic;
 
   switch(type) {
   case HideJoin:
@@ -281,6 +286,7 @@ void NetworkModelController::handleHideAction(ActionType type, QAction *action) 
   case HideNick:
   case HideMode:
   case HideDayChange:
+  case HideTopic:
     if(_messageFilter)
       BufferSettings(_messageFilter->idString()).setMessageFilter(filter);
     else {

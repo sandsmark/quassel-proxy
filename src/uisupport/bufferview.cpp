@@ -37,11 +37,9 @@
 #include "client.h"
 #include "contextmenuactionprovider.h"
 #include "graphicalui.h"
-#include "iconloader.h"
 #include "network.h"
 #include "networkmodel.h"
 #include "contextmenuactionprovider.h"
-#include "uisettings.h"
 
 /*****************************************
 * The TreeView showing the Buffers
@@ -60,10 +58,6 @@ BufferView::BufferView(QWidget *parent)
   BufferViewDelegate *tristateDelegate = new BufferViewDelegate(this);
   setItemDelegate(tristateDelegate);
   delete oldDelegate;
-
-  UiStyleSettings s("QtUiStyle/Fonts"); // li'l dirty here, but fonts are stored in QtUiStyle :/
-  s.notify("BufferView", this, SLOT(setCustomFont(QVariant)));
-  setCustomFont(s.value("BufferView", QFont()));
 }
 
 void BufferView::init() {
@@ -73,7 +67,12 @@ void BufferView::init() {
   setIndentation(10);
   expandAll();
 
+  header()->hide(); // nobody seems to use this anyway
+
   setAnimated(true);
+
+  // FIXME This is to workaround bug #663
+  setUniformRowHeights(true);
 
 #ifndef QT_NO_DRAGANDDROP
   setDragEnabled(true);
@@ -195,13 +194,6 @@ void BufferView::setRootIndexForNetworkId(const NetworkId &networkId) {
   }
 }
 
-void BufferView::setCustomFont(const QVariant &v) {
-  QFont font = v.value<QFont>();
-  if(font.family().isEmpty())
-    font = QApplication::font();
-  setFont(font);
-}
-
 void BufferView::joinChannel(const QModelIndex &index) {
   BufferInfo::Type bufferType = (BufferInfo::Type)index.data(NetworkModel::BufferTypeRole).value<int>();
 
@@ -276,7 +268,9 @@ void BufferView::removeSelectedBuffers(bool permanently) {
       continue;
 
     removedRows << bufferId;
+  }
 
+  foreach(BufferId bufferId, removedRows) {
     if(permanently)
       config()->requestRemoveBufferPermanently(bufferId);
     else
@@ -435,7 +429,7 @@ void BufferView::menuActionTriggered(QAction *result) {
 }
 
 void BufferView::wheelEvent(QWheelEvent* event) {
-  if(UiSettings().value("MouseWheelChangesBuffers", QVariant(true)).toBool() == (bool)(event->modifiers() & Qt::AltModifier))
+  if(ItemViewSettings().mouseWheelChangesBuffer() == (bool)(event->modifiers() & Qt::AltModifier))
     return QTreeView::wheelEvent(event);
 
   int rowDelta = ( event->delta() > 0 ) ? -1 : 1;
@@ -488,44 +482,15 @@ public:
 };
 
 BufferViewDelegate::BufferViewDelegate(QObject *parent)
-  : QStyledItemDelegate(parent),
-    _updateColors(false)
+  : QStyledItemDelegate(parent)
 {
-  loadColors();
-
-  UiSettings s("QtUiStyle/Colors");
-  s.notify("inactiveActivityFG", this, SLOT(colorsChanged()));
-  s.notify("noActivityFG", this, SLOT(colorsChanged()));
-  s.notify("highlightActivityFG", this, SLOT(colorsChanged()));
-  s.notify("newMessageActivityFG", this, SLOT(colorsChanged()));
-  s.notify("otherActivityFG", this, SLOT(colorsChanged()));
-}
-
-void BufferViewDelegate::colorsChanged() {
-  // avoid mutliple unneded reloads of all colors
-  if(_updateColors)
-    return;
-  _updateColors = true;
-  QCoreApplication::postEvent(this, new ColorsChangedEvent());
 }
 
 void BufferViewDelegate::customEvent(QEvent *event) {
   if(event->type() != QEvent::User)
     return;
 
-  loadColors();
-  _updateColors = false;
-
   event->accept();
-}
-
-void BufferViewDelegate::loadColors() {
-  UiSettings s("QtUiStyle/Colors");
-  _FgColorInactiveActivity = s.value("inactiveActivityFG", QVariant(QColor(Qt::gray))).value<QColor>();
-  _FgColorNoActivity = s.value("noActivityFG", QVariant(QColor(Qt::black))).value<QColor>();
-  _FgColorHighlightActivity = s.value("highlightActivityFG", QVariant(QColor(Qt::magenta))).value<QColor>();
-  _FgColorNewMessageActivity = s.value("newMessageActivityFG", QVariant(QColor(Qt::green))).value<QColor>();
-  _FgColorOtherActivity = s.value("otherActivityFG", QVariant(QColor(Qt::darkGreen))).value<QColor>();
 }
 
 bool BufferViewDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option, const QModelIndex &index) {
@@ -559,29 +524,6 @@ bool BufferViewDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, c
   return true;
 }
 
-void BufferViewDelegate::initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const {
-  QStyledItemDelegate::initStyleOption(option, index);
-
-  if(!index.isValid())
-    return;
-
-  BufferInfo::ActivityLevel activity = (BufferInfo::ActivityLevel)index.data(NetworkModel::BufferActivityRole).toInt();
-
-  QColor fgColor = _FgColorNoActivity;
-  if(activity & BufferInfo::Highlight) {
-    fgColor = _FgColorHighlightActivity;
-  } else if(activity & BufferInfo::NewMessage) {
-    fgColor = _FgColorNewMessageActivity;
-  } else if(activity & BufferInfo::OtherActivity) {
-    fgColor = _FgColorOtherActivity;
-  } else if(!index.data(NetworkModel::ItemActiveRole).toBool() || index.data(NetworkModel::UserAwayRole).toBool()) {
-    fgColor = _FgColorInactiveActivity;
-  }
-
-  option->palette.setColor(QPalette::Text, fgColor);
-}
-
-
 // ==============================
 //  BufferView Dock
 // ==============================
@@ -597,4 +539,23 @@ BufferViewDock::BufferViewDock(BufferViewConfig *config, QWidget *parent)
 void BufferViewDock::bufferViewRenamed(const QString &newName) {
   setWindowTitle(newName);
   toggleViewAction()->setText(newName);
+}
+
+int BufferViewDock::bufferViewId() const {
+  BufferView *view = bufferView();
+  if(!view)
+    return 0;
+
+  if(view->config())
+    return view->config()->bufferViewId();
+  else
+    return 0;
+}
+
+BufferViewConfig *BufferViewDock::config() const {
+  BufferView *view = bufferView();
+  if(!view)
+    return 0;
+  else
+    return view->config();
 }

@@ -29,10 +29,16 @@
 
 #include <QDebug>
 
+INIT_SYNCABLE_OBJECT(ClientBacklogManager)
 ClientBacklogManager::ClientBacklogManager(QObject *parent)
   : BacklogManager(parent),
     _requester(0)
 {
+}
+
+QVariantList ClientBacklogManager::requestBacklog(BufferId bufferId, MsgId first, MsgId last, int limit, int additional) {
+  _buffersRequested << bufferId;
+  return BacklogManager::requestBacklog(bufferId, first, last, limit, additional);
 }
 
 void ClientBacklogManager::receiveBacklog(BufferId bufferId, MsgId first, MsgId last, int limit, int additional, QVariantList msgs) {
@@ -51,8 +57,8 @@ void ClientBacklogManager::receiveBacklog(BufferId bufferId, MsgId first, MsgId 
     bool lastPart = !_requester->buffer(bufferId, msglist);
     updateProgress(_requester->totalBuffers() - _requester->buffersWaiting(), _requester->totalBuffers());
     if(lastPart) {
-      stopBuffering();
-      reset();
+      dispatchMessages(_requester->bufferedMessages(), true);
+      _requester->flushBuffer();
     }
   } else {
     dispatchMessages(msglist);
@@ -70,11 +76,10 @@ void ClientBacklogManager::receiveBacklogAll(MsgId first, MsgId last, int limit,
   }
 
   dispatchMessages(msglist);
-  reset();
 }
 
 void ClientBacklogManager::requestInitialBacklog() {
-  if(_requester) {
+  if(_requester && !_buffersRequested.isEmpty()) {
     qWarning() << "ClientBacklogManager::requestInitialBacklog() called twice in the same session! (Backlog has already been requested)";
     return;
   }
@@ -92,16 +97,41 @@ void ClientBacklogManager::requestInitialBacklog() {
     _requester = new FixedBacklogRequester(this);
   };
 
-  _requester->requestBacklog();
+  _requester->requestInitialBacklog();
   if(_requester->isBuffering()) {
     updateProgress(0, _requester->totalBuffers());
   }
 }
 
-void ClientBacklogManager::stopBuffering() {
-  Q_ASSERT(_requester);
+BufferIdList ClientBacklogManager::filterNewBufferIds(const BufferIdList &bufferIds) {
+  BufferIdList newBuffers;
+  QSet<BufferId> availableBuffers = Client::networkModel()->allBufferIds().toSet();
+  foreach(BufferId bufferId, bufferIds) {
+    if(_buffersRequested.contains(bufferId) || !availableBuffers.contains(bufferId))
+      continue;
+    newBuffers << bufferId;
+  }
+  return newBuffers;
+}
 
-  dispatchMessages(_requester->bufferedMessages(), true);
+void ClientBacklogManager::checkForBacklog(const QList<BufferId> &bufferIds) {
+  if(!_requester) {
+    // during client start up this message is to be expected in some situations.
+    qDebug() << "ClientBacklogManager::checkForBacklog(): no active backlog requester (yet?).";
+    return;
+  }
+  switch(_requester->type()) {
+  case BacklogRequester::GlobalUnread:
+    break;
+  case BacklogRequester::PerBufferUnread:
+  case BacklogRequester::PerBufferFixed:
+  default:
+    {
+      BufferIdList buffers = filterNewBufferIds(bufferIds);
+      if(!buffers.isEmpty())
+        _requester->requestBacklog(buffers);
+    }
+  };
 }
 
 bool ClientBacklogManager::isBuffering() {
@@ -126,4 +156,5 @@ void ClientBacklogManager::dispatchMessages(const MessageList &messages, bool so
 void ClientBacklogManager::reset() {
   delete _requester;
   _requester = 0;
+  _buffersRequested.clear();
 }

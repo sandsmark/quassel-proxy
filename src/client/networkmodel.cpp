@@ -21,16 +21,15 @@
 #include "networkmodel.h"
 
 #include <QAbstractItemView>
+#include <QTextDocument> 	// for Qt::escape()
 
 #include "buffermodel.h"
-#include "client.h"
-#include "signalproxy.h"
-#include "network.h"
-#include "ircchannel.h"
-
 #include "buffersettings.h"
-
-#include "util.h" // get rid of this (needed for isChannelName)
+#include "client.h"
+#include "clientsettings.h"
+#include "ircchannel.h"
+#include "network.h"
+#include "signalproxy.h"
 
 /*****************************************
 *  Network Items
@@ -107,6 +106,23 @@ BufferItem *NetworkItem::bufferItem(const BufferInfo &bufferInfo) {
   }
 
   newChild(bufferItem);
+
+  // postprocess... this is necessary because Qt doesn't seem to like adding childs which already have childs on their own
+  switch(bufferInfo.type()) {
+  case BufferInfo::ChannelBuffer:
+    {
+      ChannelBufferItem *channelBufferItem = static_cast<ChannelBufferItem *>(bufferItem);
+      if(_network) {
+        IrcChannel *ircChannel = _network->ircChannel(bufferInfo.bufferName());
+        if(ircChannel)
+          channelBufferItem->attachIrcChannel(ircChannel);
+      }
+    }
+    break;
+  default:
+    break;
+  }
+
   return bufferItem;
 }
 
@@ -174,8 +190,8 @@ void NetworkItem::setCurrentServer(const QString &serverName) {
 QString NetworkItem::toolTip(int column) const {
   Q_UNUSED(column);
 
-  QStringList toolTip(QString("<b>%1</b>").arg(networkName()));
-  toolTip.append(tr("Server: %1").arg(currentServer()));
+  QStringList toolTip(QString("<b>%1</b>").arg(Qt::escape(networkName())));
+  toolTip.append(tr("Server: %1").arg(Qt::escape(currentServer())));
   toolTip.append(tr("Users: %1").arg(nickCount()));
 
   if(_network) {
@@ -216,6 +232,7 @@ void BufferItem::setActivityLevel(BufferInfo::ActivityLevel level) {
 void BufferItem::clearActivityLevel() {
   _activity = BufferInfo::NoActivity;
   _lastSeenMarkerMsgId = _lastSeenMsgId;
+  _firstUnreadMsgId = MsgId();
   emit dataChanged();
 }
 
@@ -227,9 +244,15 @@ void BufferItem::updateActivityLevel(const Message &msg) {
   if(msg.flags() & Message::Self)	// don't update activity for our own messages
     return;
 
-  if(lastSeenMsgId() >= msg.msgId())
+  if(msg.msgId() <= lastSeenMsgId())
     return;
 
+  bool stateChanged = false;
+  if(!firstUnreadMsgId().isValid() || msg.msgId() < firstUnreadMsgId()) {
+    stateChanged = true;
+    _firstUnreadMsgId = msg.msgId();
+  }
+     
   BufferInfo::ActivityLevel oldLevel = activityLevel();
 
   _activity |= BufferInfo::OtherActivity;
@@ -239,7 +262,9 @@ void BufferItem::updateActivityLevel(const Message &msg) {
   if(msg.flags() & Message::Highlight)
     _activity |= BufferInfo::Highlight;
 
-  if(oldLevel != _activity)
+  stateChanged |= (oldLevel != _activity);
+
+  if(stateChanged)
     emit dataChanged();
 }
 
@@ -259,6 +284,8 @@ QVariant BufferItem::data(int column, int role) const {
     return isActive();
   case NetworkModel::BufferActivityRole:
     return (int)activityLevel();
+  case NetworkModel::BufferFirstUnreadMsgIdRole:
+    return qVariantFromValue(firstUnreadMsgId());
   default:
     return PropertyMapItem::data(column, role);
   }
@@ -436,13 +463,6 @@ ChannelBufferItem::ChannelBufferItem(const BufferInfo &bufferInfo, AbstractTreeI
   : BufferItem(bufferInfo, parent),
     _ircChannel(0)
 {
-  const Network *net = Client::network(bufferInfo.networkId());
-  if(!net)
-    return;
-
-  IrcChannel *ircChannel = net->ircChannel(bufferInfo.bufferName());
-  if(ircChannel)
-    attachIrcChannel(ircChannel);
 }
 
 QVariant ChannelBufferItem::data(int column, int role) const {
@@ -458,7 +478,7 @@ QString ChannelBufferItem::toolTip(int column) const {
   Q_UNUSED(column);
   QStringList toolTip;
 
-  toolTip.append(tr("<b>Channel %1</b>").arg(bufferName()));
+  toolTip.append(tr("<b>Channel %1</b>").arg(Qt::escape(bufferName())));
   if(isActive()) {
     //TODO: add channel modes
     toolTip.append(tr("<b>Users:</b> %1").arg(nickCount()));
@@ -468,14 +488,13 @@ QString ChannelBufferItem::toolTip(int column) const {
         toolTip.append(tr("<b>Mode:</b> %1").arg(channelMode));
     }
 
-    BufferSettings s;
-    bool showTopic = s.value("DisplayTopicInTooltip", QVariant(false)).toBool();
+    ItemViewSettings s;
+    bool showTopic = s.displayTopicInTooltip();
     if(showTopic) {
       QString _topic = topic();
       if(_topic != "") {
         _topic = stripFormatCodes(_topic);
-        _topic.replace(QString("<"), QString("&lt;"));
-        _topic.replace(QString(">"), QString("&gt;"));
+	_topic = Qt::escape(_topic);
         toolTip.append(QString("<font size='-2'>&nbsp;</font>"));
         toolTip.append(tr("<b>Topic:</b> %1").arg(_topic));
       }
@@ -808,7 +827,7 @@ NetworkModel::NetworkModel(QObject *parent)
 
 QList<QVariant >NetworkModel::defaultHeader() {
   QList<QVariant> data;
-  data << tr("Buffer") << tr("Topic") << tr("Nick Count");
+  data << tr("Chat") << tr("Topic") << tr("Nick Count");
   return data;
 }
 
@@ -1004,6 +1023,16 @@ void NetworkModel::updateBufferActivity(Message &msg) {
   case Message::Error:
     msg.setFlags(msg.flags() | Message::Redirected);
     redirectionTarget = _errorMsgsTarget;
+    break;
+  // Update IrcUser's last activity
+  case Message::Plain:
+  case Message::Action:
+    if(bufferType(msg.bufferId()) == BufferInfo::ChannelBuffer) {
+      const Network *net = Client::network(msg.bufferInfo().networkId());
+      IrcUser *user = net ? net->ircUser(nickFromMask(msg.sender())) : 0;
+      if(user)
+        user->setLastChannelActivity(msg.bufferId(), msg.timestamp());
+    }
     break;
   default:
     break;

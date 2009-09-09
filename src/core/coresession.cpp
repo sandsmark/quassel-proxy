@@ -28,6 +28,7 @@
 #include "corebacklogmanager.h"
 #include "corebufferviewmanager.h"
 #include "coreirclisthelper.h"
+#include "corenetworkconfig.h"
 #include "storage.h"
 
 #include "coreidentity.h"
@@ -38,6 +39,12 @@
 #include "util.h"
 #include "coreusersettings.h"
 #include "logger.h"
+#include "coreignorelistmanager.h"
+
+class ProcessMessagesEvent : public QEvent {
+public:
+  ProcessMessagesEvent() : QEvent(QEvent::User) {}
+};
 
 CoreSession::CoreSession(UserId uid, bool restoreState, QObject *parent)
   : QObject(parent),
@@ -48,8 +55,11 @@ CoreSession::CoreSession(UserId uid, bool restoreState, QObject *parent)
     _backlogManager(new CoreBacklogManager(this)),
     _bufferViewManager(new CoreBufferViewManager(_signalProxy, this)),
     _ircListHelper(new CoreIrcListHelper(this)),
+    _networkConfig(new CoreNetworkConfig("GlobalNetworkConfig", this)),
     _coreInfo(this),
-    scriptEngine(new QScriptEngine(this))
+    scriptEngine(new QScriptEngine(this)),
+    _processMessages(false),
+    _ignoreListManager(this)
 {
   SignalProxy *p = signalProxy();
   connect(p, SIGNAL(peerRemoved(QIODevice *)), this, SLOT(removeClient(QIODevice *)));
@@ -81,8 +91,9 @@ CoreSession::CoreSession(UserId uid, bool restoreState, QObject *parent)
   p->synchronize(&aliasManager());
   p->synchronize(_backlogManager);
   p->synchronize(ircListHelper());
+  p->synchronize(networkConfig());
   p->synchronize(&_coreInfo);
-
+  p->synchronize(&_ignoreListManager);
   // Restore session state
   if(restoreState)
     restoreSessionState();
@@ -142,6 +153,7 @@ void CoreSession::loadSettings() {
 void CoreSession::saveSessionState() const {
   _bufferSyncer->storeDirtyIds();
   _bufferViewManager->saveBufferViews();
+  _networkConfig->save();
 }
 
 void CoreSession::restoreSessionState() {
@@ -196,16 +208,20 @@ void CoreSession::msgFromClient(BufferInfo bufinfo, QString msg) {
 
 // ALL messages coming pass through these functions before going to the GUI.
 // So this is the perfect place for storing the backlog and log stuff.
-void CoreSession::recvMessageFromServer(Message::Type type, BufferInfo::Type bufferType,
-                                        QString target, QString text, QString sender, Message::Flags flags) {
-  CoreNetwork *net = qobject_cast<CoreNetwork*>(this->sender());
-  Q_ASSERT(net);
+void CoreSession::recvMessageFromServer(NetworkId networkId, Message::Type type, BufferInfo::Type bufferType,
+                                        const QString &target, const QString &text_, const QString &sender, Message::Flags flags) {
 
-  BufferInfo bufferInfo = Core::bufferInfo(user(), net->networkId(), bufferType, target);
-  Message msg(bufferInfo, type, text, sender, flags);
-  msg.setMsgId(Core::storeMessage(msg));
-  Q_ASSERT(msg.msgId() != 0);
-  emit displayMsg(msg);
+  // U+FDD0 and U+FDD1 are special characters for Qt's text engine, specifically they mark the boundaries of
+  // text frames in a QTextDocument. This might lead to problems in widgets displaying QTextDocuments (such as
+  // KDE's notifications), hence we remove those just to be safe.
+  QString text = text_;
+  text.remove(QChar(0xfdd0)).remove(QChar(0xfdd1));
+
+  _messageQueue << RawMessage(networkId, type, bufferType, target, text, sender, flags);
+  if(!_processMessages) {
+    _processMessages = true;
+    QCoreApplication::postEvent(this, new ProcessMessagesEvent());
+  }
 }
 
 void CoreSession::recvStatusMsgFromServer(QString msg) {
@@ -218,6 +234,56 @@ QList<BufferInfo> CoreSession::buffers() const {
   return Core::requestBuffers(user());
 }
 
+void CoreSession::customEvent(QEvent *event) {
+  if(event->type() != QEvent::User)
+    return;
+
+  processMessages();
+  event->accept();
+}
+
+void CoreSession::processMessages() {
+  QString networkName;
+  if(_messageQueue.count() == 1) {
+    const RawMessage &rawMsg = _messageQueue.first();
+    BufferInfo bufferInfo = Core::bufferInfo(user(), rawMsg.networkId, rawMsg.bufferType, rawMsg.target);
+    Message msg(bufferInfo, rawMsg.type, rawMsg.text, rawMsg.sender, rawMsg.flags);
+
+    networkName = _networks.value(bufferInfo.networkId())->networkName();
+    // if message is ignored with "HardStrictness" we discard it here
+    if(_ignoreListManager.match(msg, networkName) != IgnoreListManager::HardStrictness) {
+      Core::storeMessage(msg);
+      emit displayMsg(msg);
+    }
+  } else {
+    QHash<NetworkId, QHash<QString, BufferInfo> > bufferInfoCache;
+    MessageList messages;
+    BufferInfo bufferInfo;
+    for(int i = 0; i < _messageQueue.count(); i++) {
+      const RawMessage &rawMsg = _messageQueue.at(i);
+      if(bufferInfoCache.contains(rawMsg.networkId) && bufferInfoCache[rawMsg.networkId].contains(rawMsg.target)) {
+	bufferInfo = bufferInfoCache[rawMsg.networkId][rawMsg.target];
+      } else {
+	bufferInfo = Core::bufferInfo(user(), rawMsg.networkId, rawMsg.bufferType, rawMsg.target);
+	bufferInfoCache[rawMsg.networkId][rawMsg.target] = bufferInfo;
+      }
+
+      Message msg(bufferInfo, rawMsg.type, rawMsg.text, rawMsg.sender, rawMsg.flags);
+      networkName = _networks.value(bufferInfo.networkId())->networkName();
+      // if message is ignored with "HardStrictness" we discard it here
+      if(_ignoreListManager.match(msg, networkName) == IgnoreListManager::HardStrictness)
+        continue;
+      messages << msg;
+    }
+    Core::storeMessages(messages);
+    // FIXME: extend protocol to a displayMessages(MessageList)
+    for(int i = 0; i < messages.count(); i++) {
+      emit displayMsg(messages[i]);
+    }
+  }
+  _processMessages = false;
+  _messageQueue.clear();
+}
 
 QVariant CoreSession::sessionState() {
   QVariantMap v;
@@ -272,6 +338,7 @@ void CoreSession::createIdentity(const Identity &identity, const QVariantMap &ad
   if(additional.contains("CertPem"))
     coreIdentity.setSslCert(additional["CertPem"].toByteArray());
 #endif
+  qDebug() << Q_FUNC_INFO;
   IdentityId id = Core::createIdentity(user(), coreIdentity);
   if(!id.isValid())
     return;
@@ -284,7 +351,7 @@ void CoreSession::createIdentity(const CoreIdentity &identity) {
   _identities[identity.id()] = coreIdentity;
   // CoreIdentity has it's own synchronize method since it's "private" sslManager needs to be synced aswell
   coreIdentity->synchronize(signalProxy());
-  connect(coreIdentity, SIGNAL(updated(const QVariantMap &)), this, SLOT(updateIdentityBySender()));
+  connect(coreIdentity, SIGNAL(updated()), this, SLOT(updateIdentityBySender()));
   emit identityCreated(*coreIdentity);
 }
 
@@ -320,21 +387,30 @@ void CoreSession::createNetwork(const NetworkInfo &info_, const QStringList &per
 
   id = info.networkId.toInt();
   if(!_networks.contains(id)) {
+
+    // create persistent chans
+    QRegExp rx("\\s*(\\S+)(?:\\s*(\\S+))?\\s*");
+    foreach(QString channel, persistentChans) {
+      if(!rx.exactMatch(channel)) {
+        qWarning() << QString("Invalid persistent channel declaration: %1").arg(channel);
+        continue;
+      }
+      Core::bufferInfo(user(), info.networkId, BufferInfo::ChannelBuffer, rx.cap(1), true);
+      Core::setChannelPersistent(user(), info.networkId, rx.cap(1), true);
+      if(!rx.cap(2).isEmpty())
+        Core::setPersistentChannelKey(user(), info.networkId, rx.cap(1), rx.cap(2));
+    }
+
     CoreNetwork *net = new CoreNetwork(id, this);
-    connect(net, SIGNAL(displayMsg(Message::Type, BufferInfo::Type, QString, QString, QString, Message::Flags)),
-	    this, SLOT(recvMessageFromServer(Message::Type, BufferInfo::Type, QString, QString, QString, Message::Flags)));
-    connect(net, SIGNAL(displayStatusMsg(QString)), this, SLOT(recvStatusMsgFromServer(QString)));
+    connect(net, SIGNAL(displayMsg(NetworkId, Message::Type, BufferInfo::Type, const QString &, const QString &, const QString &, Message::Flags)),
+                 SLOT(recvMessageFromServer(NetworkId, Message::Type, BufferInfo::Type, const QString &, const QString &, const QString &, Message::Flags)));
+    connect(net, SIGNAL(displayStatusMsg(QString)), SLOT(recvStatusMsgFromServer(QString)));
 
     net->setNetworkInfo(info);
     net->setProxy(signalProxy());
     _networks[id] = net;
     signalProxy()->synchronize(net);
     emit networkCreated(id);
-    // create persistent chans
-    foreach(QString channel, persistentChans) {
-      Core::bufferInfo(user(), info.networkId, BufferInfo::ChannelBuffer, channel, true);
-      Core::setChannelPersistent(user(), info.networkId, channel, true);
-    }
   } else {
     qWarning() << qPrintable(tr("CoreSession::createNetwork(): Trying to create a network that already exists, updating instead!"));
     _networks[info.networkId]->requestSetNetworkInfo(info);

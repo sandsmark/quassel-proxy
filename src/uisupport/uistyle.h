@@ -18,23 +18,27 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef UISTYLE_H
-#define UISTYLE_H
+#ifndef UISTYLE_H_
+#define UISTYLE_H_
 
 #include <QDataStream>
 #include <QFontMetricsF>
+#include <QHash>
 #include <QTextCharFormat>
 #include <QTextLayout>
-#include <QUrl>
+#include <QPalette>
+#include <QVector>
 
+#include "bufferinfo.h"
 #include "message.h"
+#include "networkmodel.h"
 #include "settings.h"
 
-class UiStyle {
-  Q_DECLARE_TR_FUNCTIONS(UiStyle)
+class UiStyle : public QObject{
+  Q_OBJECT
 
 public:
-  UiStyle(const QString &settingsKey);
+  UiStyle(QObject *parent = 0);
   virtual ~UiStyle();
 
   typedef QList<QPair<quint16, quint32> > FormatList;
@@ -47,98 +51,77 @@ public:
    *         Also, we _do_ rely on certain properties of these values in styleString() and friends!
    */
   enum FormatType {
-    None            = 0x00000000,
-    Invalid         = 0x11111111,
+    Base            = 0x00000000,
+    Invalid         = 0xffffffff,
+
     // Message Formats (mutually exclusive!)
     PlainMsg        = 0x00000001,
     NoticeMsg       = 0x00000002,
-    ServerMsg       = 0x00000003,
-    ErrorMsg        = 0x00000004,
-    JoinMsg         = 0x00000005,
-    PartMsg         = 0x00000006,
-    QuitMsg         = 0x00000007,
-    KickMsg         = 0x00000008,
-    RenameMsg       = 0x00000009,
-    ModeMsg         = 0x0000000a,
-    ActionMsg       = 0x0000000b,
+    ActionMsg       = 0x00000003,
+    NickMsg         = 0x00000004,
+    ModeMsg         = 0x00000005,
+    JoinMsg         = 0x00000006,
+    PartMsg         = 0x00000007,
+    QuitMsg         = 0x00000008,
+    KickMsg         = 0x00000009,
+    KillMsg         = 0x0000000a,
+    ServerMsg       = 0x0000000b,
+    InfoMsg         = 0x0000000c,
+    ErrorMsg        = 0x0000000d,
+    DayChangeMsg    = 0x0000000e,
+    TopicMsg        = 0x0000000f,
+    NetsplitJoinMsg = 0x00000010,
+    NetsplitQuitMsg = 0x00000020,
+
     // Standard Formats
-    Bold            = 0x00000010,
-    Italic          = 0x00000020,
-    Underline       = 0x00000040,
-    Reverse         = 0x00000080,
+    Bold            = 0x00000100,
+    Italic          = 0x00000200,
+    Underline       = 0x00000400,
+    Reverse         = 0x00000800,
+
     // Individual parts of a message
-    Timestamp       = 0x00000100,
-    Sender          = 0x00000200,
-    Nick            = 0x00000400,
-    Hostmask        = 0x00000800,
-    ChannelName     = 0x00001000,
-    ModeFlags       = 0x00002000,
+    Timestamp       = 0x00001000,
+    Sender          = 0x00002000,
+    Contents        = 0x00004000,
+    Nick            = 0x00008000,
+    Hostmask        = 0x00010000,
+    ChannelName     = 0x00020000,
+    ModeFlags       = 0x00040000,
+
     // URL is special, we want that to take precedence over the rest...
-    Url             = 0x00100000,
-    // Colors
-    FgCol00         = 0x00400000,
-    FgCol01         = 0x01400000,
-    FgCol02         = 0x02400000,
-    FgCol03         = 0x03400000,
-    FgCol04         = 0x04400000,
-    FgCol05         = 0x05400000,
-    FgCol06         = 0x06400000,
-    FgCol07         = 0x07400000,
-    FgCol08         = 0x08400000,
-    FgCol09         = 0x09400000,
-    FgCol10         = 0x0a400000,
-    FgCol11         = 0x0b400000,
-    FgCol12         = 0x0c400000,
-    FgCol13         = 0x0d400000,
-    FgCol14         = 0x0e400000,
-    FgCol15         = 0x0f400000,
+    Url             = 0x00080000
 
-    BgCol00         = 0x00800000,
-    BgCol01         = 0x10800000,
-    BgCol02         = 0x20800000,
-    BgCol03         = 0x30800000,
-    BgCol04         = 0x40800000,
-    BgCol05         = 0x50800000,
-    BgCol06         = 0x60800000,
-    BgCol07         = 0x70800000,
-    BgCol08         = 0x80800000,
-    BgCol09         = 0x90800000,
-    BgCol10         = 0xa0800000,
-    BgCol11         = 0xb0800000,
-    BgCol12         = 0xc0800000,
-    BgCol13         = 0xd0800000,
-    BgCol14         = 0xe0800000,
-    BgCol15         = 0xf0800000,
-
-    // Colors used for sender auto coloring
-    // (starting at 01 because 00 is the default Sender format)
-    SenderCol01     = 0x01000200,
-    SenderCol02     = 0x02000200,
-    SenderCol03     = 0x03000200,
-    SenderCol04     = 0x04000200,
-    SenderCol05     = 0x05000200,
-    SenderCol06     = 0x06000200,
-    SenderCol07     = 0x07000200,
-    SenderCol08     = 0x08000200,
-    SenderCol09     = 0x09000200,
-    SenderCol10     = 0x0a000200,
-    SenderCol11     = 0x0b000200,
-    SenderCol12     = 0x0c000200,
-    SenderCol13     = 0x0d000200,
-    SenderCol14     = 0x0e000200,
-    SenderCol15     = 0x0f000200,
-    SenderCol16     = 0x10000200,
-    SenderCol17     = 0x11000200,
-    SenderCol18     = 0x12000200,
-    SenderCol19     = 0x13000200,
-    SenderCol20     = 0x14000200,
-    SenderCol21     = 0x15000200
-
+    // mIRC Colors - we assume those to be present only in plain contents
+    // foreground: 0x0.400000
+    // background: 0x.0800000
   };
 
-  struct UrlInfo {
-    int start, end;
-    QUrl url;
+  enum MessageLabel {
+    OwnMsg          = 0x00000001,
+    Highlight       = 0x00000002,
+    Selected        = 0x00000004  // must be last!
+  };
+
+  enum ItemFormatType {
+    BufferViewItem    = 0x00000001,
+    NickViewItem      = 0x00000002,
+
+    NetworkItem       = 0x00000010,
+    ChannelBufferItem = 0x00000020,
+    QueryBufferItem   = 0x00000040,
+    IrcUserItem       = 0x00000080,
+    UserCategoryItem  = 0x00000100,
+
+    InactiveBuffer    = 0x00001000,
+    ActiveBuffer      = 0x00002000,
+    UnreadBuffer      = 0x00004000,
+    HighlightedBuffer = 0x00008000,
+    UserAway          = 0x00010000
+  };
+
+  enum ColorRole {
+    MarkerLine,
+    NumRoles  // must be last!
   };
 
   struct StyledString {
@@ -148,57 +131,89 @@ public:
 
   class StyledMessage;
 
-  StyledString styleString(const QString &);
-  QString mircToInternal(const QString &) const;
+  static FormatType formatType(Message::Type msgType);
+  static StyledString styleString(const QString &string, quint32 baseFormat = Base);
+  static QString mircToInternal(const QString &);
+  static inline QString timestampFormatString() { return _timestampFormatString; }
 
-  void setFormat(FormatType, QTextCharFormat, Settings::Mode mode/* = Settings::Custom*/);
-    void setSenderAutoColor(bool state);
-  QTextCharFormat format(FormatType, Settings::Mode mode = Settings::Custom) const;
-  QTextCharFormat mergedFormat(quint32 formatType);
-  QFontMetricsF *fontMetrics(quint32 formatType);
+  QTextCharFormat format(quint32 formatType, quint32 messageLabel);
+  QFontMetricsF *fontMetrics(quint32 formatType, quint32 messageLabel);
 
-  FormatType formatType(const QString &code) const;
-  QString formatCode(FormatType) const;
+  QList<QTextLayout::FormatRange> toTextLayoutList(const FormatList &, int textLength, quint32 messageLabel);
 
-  inline QFont defaultFont() const { return _defaultFont; }
+  inline const QBrush &brush(ColorRole role) const { return _uiStylePalette.at((int) role); }
+  inline void setBrush(ColorRole role, const QBrush &brush) { _uiStylePalette[(int) role] = brush; }
 
-  QList<QTextLayout::FormatRange> toTextLayoutList(const FormatList &, int textLength);
+  QVariant bufferViewItemData(const QModelIndex &networkModelIndex, int role) const;
+  QVariant nickViewItemData(const QModelIndex &networkModelIndex, int role) const;
+
+public slots:
+  void reload();
+
+signals:
+  void changed();
 
 protected:
-  bool _senderAutoColor;
-private:
-  QFont _defaultFont;
-  QTextCharFormat _defaultPlainFormat;
-  QHash<FormatType, QTextCharFormat> _defaultFormats;
-  QHash<FormatType, QTextCharFormat> _customFormats;
-  QHash<quint32, QTextCharFormat> _cachedFormats;
-  QHash<quint32, QFontMetricsF *> _cachedFontMetrics;
-  QHash<QString, FormatType> _formatCodes;
+  void loadStyleSheet();
+  QString loadStyleSheet(const QString &name, bool shouldExist = false);
 
-  QString _settingsKey;
+  QTextCharFormat format(quint64 key) const;
+  QTextCharFormat cachedFormat(quint32 formatType, quint32 messageLabel) const;
+  void setCachedFormat(const QTextCharFormat &format, quint32 formatType, quint32 messageLabel);
+  void mergeFormat(QTextCharFormat &format, quint32 formatType, quint64 messageLabel);
+  void mergeSubElementFormat(QTextCharFormat &format, quint32 formatType, quint64 messageLabel);
+
+  static FormatType formatType(const QString &code);
+  static QString formatCode(FormatType);
+  static void setTimestampFormatString(const QString &format);
+
+  QVariant itemData(int role, const QTextCharFormat &format) const;
+
+private slots:
+  void showItemViewIconsChanged();
+
+private:
+  QVector<QBrush> _uiStylePalette;
+  QBrush _markerLineBrush;
+  QHash<quint64, QTextCharFormat> _formats;
+  QHash<quint64, QTextCharFormat> _formatCache;
+  QHash<quint64, QFontMetricsF *> _metricsCache;
+  QHash<quint32, QTextCharFormat> _listItemFormats;
+  static QHash<QString, FormatType> _formatCodes;
+  static QString _timestampFormatString;
+
+  QPixmap _channelJoinedIcon;
+  QPixmap _channelPartedIcon;
+  QPixmap _userOfflineIcon;
+  QPixmap _userOnlineIcon;
+  QPixmap _userAwayIcon;
+  QPixmap _categoryOpIcon;
+  QPixmap _categoryVoiceIcon;
+  int _opIconLimit;
+  int _voiceIconLimit;
+  bool _showNickViewIcons;
+  bool _showBufferViewIcons;
 };
 
 class UiStyle::StyledMessage : public Message {
 public:
   explicit StyledMessage(const Message &message);
 
-  //! Styling is only needed for calls to plainContents() and contentsFormatList()
-  // StyledMessage can't style lazily by itself, as it doesn't know the used style
-  bool inline needsStyling() const { return _contents.plainText.isNull(); }
-  void style(UiStyle *style) const;
-
-
   QString decoratedTimestamp() const;
   QString plainSender() const;             //!< Nickname (no decorations) for Plain and Notice, empty else
   QString decoratedSender() const;
-  inline const QString &plainContents() const { return _contents.plainText; }
+  const QString &plainContents() const;
 
-  inline FormatType timestampFormat() const { return UiStyle::Timestamp; }
-  FormatType senderFormat() const;
-  inline const FormatList &contentsFormatList() const { return _contents.formatList; }
+  const FormatList &contentsFormatList() const;
+
+  quint8 senderHash() const;
+
+protected:
+  void style() const;
 
 private:
   mutable StyledString _contents;
+  mutable quint8 _senderHash;
 };
 
 QDataStream &operator<<(QDataStream &out, const UiStyle::FormatList &formatList);

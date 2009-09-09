@@ -30,7 +30,6 @@
 #include "cliparser.h"
 #include "qtui.h"
 #include "qtuisettings.h"
-#include "sessionsettings.h"
 
 QtUiApplication::QtUiApplication(int &argc, char **argv)
 #ifdef HAVE_KDE
@@ -125,6 +124,10 @@ QtUiApplication::~QtUiApplication() {
   Client::destroy();
 }
 
+void QtUiApplication::quit() {
+  QtUi::mainWindow()->quit();
+}
+
 void QtUiApplication::commitData(QSessionManager &manager) {
   Q_UNUSED(manager)
   _aboutToQuit = true;
@@ -132,11 +135,10 @@ void QtUiApplication::commitData(QSessionManager &manager) {
 
 void QtUiApplication::saveState(QSessionManager & manager) {
   //qDebug() << QString("saving session state to id %1").arg(manager.sessionId());
-  AccountId activeCore = Client::currentCoreAccount();
+  AccountId activeCore = Client::currentCoreAccount(); // FIXME store this!
   SessionSettings s(manager.sessionId());
   s.setSessionAge(0);
-  emit saveStateToSession(manager.sessionId());
-  emit saveStateToSessionSettings(s);
+  QtUi::mainWindow()->saveStateToSettings(s);
 }
 
 void QtUiApplication::resumeSessionIfPossible() {
@@ -146,8 +148,7 @@ void QtUiApplication::resumeSessionIfPossible() {
     SessionSettings s(sessionId());
     s.sessionAging();
     s.setSessionAge(0);
-    emit resumeFromSession(sessionId());
-    emit resumeFromSessionSettings(s);
+    QtUi::mainWindow()->restoreStateFromSettings(s);
     s.cleanup();
   } else {
     SessionSettings s(QString("1"));

@@ -26,6 +26,7 @@ set(SOURCES
     coreconfigwizard.cpp
     coreconnectdlg.cpp
     coreinfodlg.cpp
+    debugbufferviewoverlay.cpp
     debugconsole.cpp
     debuglogwidget.cpp
     debugmessagemodelfilter.cpp
@@ -41,7 +42,6 @@ set(SOURCES
     qtuimessageprocessor.cpp
     qtuisettings.cpp
     qtuistyle.cpp
-    sessionsettings.cpp
     settingsdlg.cpp
     settingspagedlg.cpp
     simplenetworkeditor.cpp
@@ -49,7 +49,6 @@ set(SOURCES
     systraynotificationbackend.cpp
     taskbarnotificationbackend.cpp
     titlesetter.cpp
-    topiclabel.cpp
     topicwidget.cpp
     verticaldock.cpp
     webpreviewitem.cpp)
@@ -72,6 +71,7 @@ set(MOC_HDRS
     coreconfigwizard.h
     coreconnectdlg.h
     coreinfodlg.h
+    debugbufferviewoverlay.h
     debugconsole.h
     debuglogwidget.h
     debugmessagemodelfilter.h
@@ -85,6 +85,7 @@ set(MOC_HDRS
     qtui.h
     qtuiapplication.h
     qtuimessageprocessor.h
+    qtuistyle.h
     settingsdlg.h
     settingspagedlg.h
     simplenetworkeditor.h
@@ -92,7 +93,6 @@ set(MOC_HDRS
     systraynotificationbackend.h
     taskbarnotificationbackend.h
     titlesetter.h
-    topiclabel.h
     topicwidget.h
     verticaldock.h)
 
@@ -101,7 +101,6 @@ set(HEADERS
     chatlinemodelitem.h
     chatviewsettings.h
     qtuisettings.h
-    qtuistyle.h
     webpreviewitem.h)
 
 set(FORMS
@@ -117,6 +116,7 @@ set(FORMS
     coreconfigwizardsyncpage.ui
     coreconnectdlg.ui
     coreinfodlg.ui
+    debugbufferviewoverlay.ui
     debugconsole.ui
     debuglogwidget.ui
     inputwidget.ui

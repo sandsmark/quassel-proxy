@@ -31,13 +31,10 @@ public:
   QtUiSettings();
 }; 
 
-class QtUiStyleSettings : public UiStyleSettings {
+class QtUiStyleSettings : public UiSettings {
 public:
   QtUiStyleSettings(const QString &subGroup);
   QtUiStyleSettings();
-
-  void setHighlightColor(const QColor &);
-  QColor highlightColor();
 };
 
 #endif

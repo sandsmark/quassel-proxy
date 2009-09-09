@@ -29,8 +29,10 @@
 #include "buffersettings.h"
 #include "client.h"
 #include "clientbufferviewconfig.h"
+#include "graphicalui.h"
 #include "iconloader.h"
 #include "networkmodel.h"
+#include "uistyle.h"
 
 class CheckRemovalEvent : public QEvent {
 public:
@@ -45,13 +47,9 @@ BufferViewFilter::BufferViewFilter(QAbstractItemModel *model, BufferViewConfig *
   : QSortFilterProxyModel(model),
     _config(0),
     _sortOrder(Qt::AscendingOrder),
-    _channelJoinedIcon(SmallIcon("irc-channel-active")),
-    _channelPartedIcon(SmallIcon("irc-channel-inactive")),
-    _userOfflineIcon(SmallIcon("im-user-offline")),
-    _userAwayIcon(SmallIcon("im-user-away")),
-    _userOnlineIcon(SmallIcon("im-user")),
+    _showServerQueries(false),
     _editMode(false),
-    _enableEditMode(tr("Show / Hide buffers"), this)
+    _enableEditMode(tr("Show / Hide Chats"), this)
 {
   setConfig(config);
   setSourceModel(model);
@@ -65,14 +63,9 @@ BufferViewFilter::BufferViewFilter(QAbstractItemModel *model, BufferViewConfig *
   _enableEditMode.setChecked(_editMode);
   connect(&_enableEditMode, SIGNAL(toggled(bool)), this, SLOT(enableEditMode(bool)));
 
-  BufferSettings bufferSettings;
-  _showUserStateIcons = bufferSettings.showUserStateIcons();
-  bufferSettings.notify("ShowUserStateIcons", this, SLOT(showUserStateIconsChanged()));
-}
-
-void BufferViewFilter::showUserStateIconsChanged() {
-  BufferSettings bufferSettings;
-  _showUserStateIcons = bufferSettings.showUserStateIcons();
+  BufferSettings defaultSettings;
+  defaultSettings.notify("ServerNoticesTarget", this, SLOT(showServerQueriesChanged()));
+  showServerQueriesChanged();
 }
 
 void BufferViewFilter::setConfig(BufferViewConfig *config) {
@@ -94,7 +87,9 @@ void BufferViewFilter::setConfig(BufferViewConfig *config) {
   if(config->isInitialized()) {
     configInitialized();
   } else {
-    connect(config, SIGNAL(initDone()), this, SLOT(configInitialized()));
+    // we use a queued connection here since manipulating the connection list of a sending object
+    // doesn't seem to be such a good idea while executing a connected slots.
+    connect(config, SIGNAL(initDone()), this, SLOT(configInitialized()), Qt::QueuedConnection);
     invalidate();
   }
 }
@@ -103,18 +98,19 @@ void BufferViewFilter::configInitialized() {
   if(!config())
     return;
 
-  connect(config(), SIGNAL(bufferViewNameSet(const QString &)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(networkIdSet(const NetworkId &)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(addNewBuffersAutomaticallySet(bool)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(sortAlphabeticallySet(bool)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(hideInactiveBuffersSet(bool)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(allowedBufferTypesSet(int)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(minimumActivitySet(int)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(bufferListSet()), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(bufferAdded(const BufferId &, int)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(bufferMoved(const BufferId &, int)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(bufferRemoved(const BufferId &)), this, SLOT(invalidate()));
-  connect(config(), SIGNAL(bufferPermanentlyRemoved(const BufferId &)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(bufferViewNameSet(const QString &)), this, SLOT(invalidate()));
+  connect(config(), SIGNAL(configChanged()), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(networkIdSet(const NetworkId &)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(addNewBuffersAutomaticallySet(bool)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(sortAlphabeticallySet(bool)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(hideInactiveBuffersSet(bool)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(allowedBufferTypesSet(int)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(minimumActivitySet(int)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(bufferListSet()), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(bufferAdded(const BufferId &, int)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(bufferMoved(const BufferId &, int)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(bufferRemoved(const BufferId &)), this, SLOT(invalidate()));
+//   connect(config(), SIGNAL(bufferPermanentlyRemoved(const BufferId &)), this, SLOT(invalidate()));
 
   disconnect(config(), SIGNAL(initDone()), this, SLOT(configInitialized()));
 
@@ -122,6 +118,16 @@ void BufferViewFilter::configInitialized() {
 
   invalidate();
   emit configChanged();
+}
+
+void BufferViewFilter::showServerQueriesChanged() {
+  BufferSettings bufferSettings;
+
+  bool showQueries = (bufferSettings.serverNoticesTarget() & BufferSettings::DefaultBuffer);
+  if(_showServerQueries != showQueries) {
+    _showServerQueries = showQueries;
+    invalidate();
+  }
 }
 
 QList<QAction *> BufferViewFilter::actions(const QModelIndex &index) {
@@ -316,8 +322,13 @@ bool BufferViewFilter::filterAcceptBuffer(const QModelIndex &source_bufferIndex)
   int allowedBufferTypes = config()->allowedBufferTypes();
   if(!config()->networkId().isValid())
     allowedBufferTypes &= ~BufferInfo::StatusBuffer;
-  if(!(allowedBufferTypes & sourceModel()->data(source_bufferIndex, NetworkModel::BufferTypeRole).toInt()))
+  int bufferType = sourceModel()->data(source_bufferIndex, NetworkModel::BufferTypeRole).toInt();
+  if(!(allowedBufferTypes & bufferType))
     return false;
+
+  if(bufferType & BufferInfo::QueryBuffer && !_showServerQueries && sourceModel()->data(source_bufferIndex, Qt::DisplayRole).toString().contains('.')) {
+    return false;
+  }
 
   // the following dynamic filters may not trigger if the buffer is currently selected.
   QModelIndex currentIndex = Client::bufferModel()->standardSelectionModel()->currentIndex();
@@ -401,45 +412,17 @@ bool BufferViewFilter::networkLessThan(const QModelIndex &source_left, const QMo
 
 QVariant BufferViewFilter::data(const QModelIndex &index, int role) const {
   switch(role) {
+  case Qt::FontRole:
+  case Qt::ForegroundRole:
+  case Qt::BackgroundRole:
   case Qt::DecorationRole:
-    return icon(index);
+    if((config() && config()->disableDecoration()))
+      return QVariant();
+    return GraphicalUi::uiStyle()->bufferViewItemData(mapToSource(index), role);
   case Qt::CheckStateRole:
     return checkedState(index);
   default:
     return QSortFilterProxyModel::data(index, role);
-  }
-}
-
-QVariant BufferViewFilter::icon(const QModelIndex &index) const {
-  if(!_showUserStateIcons || (config() && config()->disableDecoration()))
-    return QVariant();
-
-  if(index.column() != 0)
-    return QVariant();
-
-  QModelIndex source_index = mapToSource(index);
-  NetworkModel::ItemType itemType = (NetworkModel::ItemType)sourceModel()->data(source_index, NetworkModel::ItemTypeRole).toInt();
-  BufferInfo::Type bufferType = (BufferInfo::Type)sourceModel()->data(source_index, NetworkModel::BufferTypeRole).toInt();
-  bool isActive = sourceModel()->data(source_index, NetworkModel::ItemActiveRole).toBool();
-
-  if(itemType != NetworkModel::BufferItemType)
-    return QVariant();
-
-  switch(bufferType) {
-  case BufferInfo::ChannelBuffer:
-    if(isActive)
-      return _channelJoinedIcon;
-    else
-      return _channelPartedIcon;
-  case BufferInfo::QueryBuffer:
-    if(!isActive)
-      return _userOfflineIcon;
-    if(sourceModel()->data(source_index, NetworkModel::UserAwayRole).toBool())
-      return _userAwayIcon;
-    else
-      return _userOnlineIcon;
-  default:
-    return QVariant();
   }
 }
 
@@ -546,4 +529,5 @@ bool BufferViewFilter::bufferIdLessThan(const BufferId &left, const BufferId &ri
   else
     return QString::compare(Client::networkModel()->data(leftIndex, Qt::DisplayRole).toString(), Client::networkModel()->data(rightIndex, Qt::DisplayRole).toString(), Qt::CaseInsensitive) < 0;
 }
+
 

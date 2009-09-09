@@ -31,20 +31,21 @@ class ChatLineModel : public MessageModel {
 
 public:
   enum ChatLineRole {
-    WrapListRole = MessageModel::UserRole
+    WrapListRole = MessageModel::UserRole,
+    MsgLabelRole,
+    SelectedBackgroundRole
   };
 
   ChatLineModel(QObject *parent = 0);
 
   typedef ChatLineModelItem::Word Word;
   typedef ChatLineModelItem::WrapList WrapList;
-
+  virtual inline const MessageModelItem *messageItemAt(int i) const { return &_messageList[i]; }
 protected:
 //   virtual MessageModelItem *createMessageModelItem(const Message &);
 
   virtual inline int messageCount() const { return _messageList.count(); }
   virtual inline bool messagesIsEmpty() const { return _messageList.isEmpty(); }
-  virtual inline const MessageModelItem *messageItemAt(int i) const { return &_messageList[i]; }
   virtual inline MessageModelItem *messageItemAt(int i) { return &_messageList[i]; }
   virtual inline const MessageModelItem *firstMessageItem() const { return &_messageList.first(); }
   virtual inline MessageModelItem *firstMessageItem() { return &_messageList.first(); }
@@ -55,6 +56,9 @@ protected:
   virtual inline void removeMessageAt(int i) { _messageList.removeAt(i); }
   virtual inline void removeAllMessages() { _messageList.clear(); }
   virtual Message takeMessageAt(int i);
+
+protected slots:
+  virtual void styleChanged();
 
 private:
   QList<ChatLineModelItem> _messageList;

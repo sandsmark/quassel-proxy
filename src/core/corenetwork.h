@@ -41,6 +41,7 @@ class UserInputHandler;
 class CtcpHandler;
 
 class CoreNetwork : public Network {
+  SYNCABLE_OBJECT
   Q_OBJECT
 
 public:
@@ -50,6 +51,7 @@ public:
 
   inline CoreIdentity *identityPtr() const { return coreSession()->identity(identity()); }
   inline CoreSession *coreSession() const { return _coreSession; }
+  inline CoreNetworkConfig *networkConfig() const { return coreSession()->networkConfig(); }
 
   inline IrcServerHandler *ircServerHandler() const { return _ircServerHandler; }
   inline UserInputHandler *userInputHandler() const { return _userInputHandler; }
@@ -90,6 +92,8 @@ public slots:
   virtual void setAutoReconnectInterval(quint32);
   virtual void setAutoReconnectRetries(quint16);
 
+  void setPingInterval(int interval);
+
   void connectToIrc(bool reconnecting = false);
   void disconnectFromIrc(bool requested = true, const QString &reason = QString(), bool withReconnect = false);
 
@@ -102,16 +106,24 @@ public slots:
   void addChannelKey(const QString &channel, const QString &key);
   void removeChannelKey(const QString &channel);
 
+  void setAutoWhoEnabled(bool enabled);
+  void setAutoWhoInterval(int interval);
+  void setAutoWhoDelay(int delay);
+
   bool setAutoWhoDone(const QString &channel);
 
   Server usedServer() const;
 
   inline void resetPingTimeout() { _pingCount = 0; }
 
+  inline void displayMsg(Message::Type msgType, BufferInfo::Type bufferType, const QString &target, const QString &text, const QString &sender = "", Message::Flags flags = Message::None) {
+    emit displayMsg(networkId(), msgType, bufferType, target, text, sender, flags);
+  }
+
 signals:
   void recvRawServerMsg(QString);
   void displayStatusMsg(QString);
-  void displayMsg(Message::Type, BufferInfo::Type, QString target, QString text, QString sender = "", Message::Flags flags = Message::None);
+  void displayMsg(NetworkId, Message::Type, BufferInfo::Type, const QString &target, const QString &text, const QString &sender = "", Message::Flags flags = Message::None);
   void disconnected(NetworkId networkId);
   void connectionError(const QString &errorMsg);
 
@@ -134,7 +146,7 @@ private slots:
   void restoreUserModes();
   void doAutoReconnect();
   void sendPing();
-  void enablePingTimeout();
+  void enablePingTimeout(bool enable = true);
   void disablePingTimeout();
   void sendAutoWho();
   void startAutoWhoCycle();
@@ -178,15 +190,10 @@ private:
 
   QTimer _pingTimer;
   uint _lastPingTime;
-  uint _maxPingCount;
   uint _pingCount;
 
-  bool _autoWhoEnabled;
   QStringList _autoWhoQueue;
   QHash<QString, int> _autoWhoPending;
-  int _autoWhoInterval;
-  int _autoWhoNickLimit;
-  int _autoWhoDelay;
   QTimer _autoWhoTimer, _autoWhoCycleTimer;
 
   QTimer _tokenBucketTimer;

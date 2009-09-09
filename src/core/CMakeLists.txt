@@ -18,14 +18,18 @@ set(SOURCES
     corebufferviewmanager.cpp
     corecoreinfo.cpp
     coreidentity.cpp
+    coreignorelistmanager.cpp
     coreircchannel.cpp
     coreirclisthelper.cpp
     corenetwork.cpp
+    corenetworkconfig.cpp
     coresession.cpp
     coresettings.cpp
     coreusersettings.cpp
     ctcphandler.cpp
     ircserverhandler.cpp
+    netsplit.cpp
+    postgresqlstorage.cpp
     sessionthread.cpp
     sqlitestorage.cpp
     storage.cpp
@@ -43,12 +47,16 @@ set(MOC_HDRS
     corebufferviewmanager.h
     corecoreinfo.h
     coreidentity.h
+    coreignorelistmanager.h
     coreircchannel.h
     coreirclisthelper.h
     corenetwork.h
+    corenetworkconfig.h
     coresession.h
     ctcphandler.h
     ircserverhandler.h
+    netsplit.h
+    postgresqlstorage.h
     sqlitestorage.h
     storage.h
     sessionthread.h

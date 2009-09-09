@@ -27,13 +27,18 @@
 #  include <QMainWindow>
 #endif
 
+#ifdef Q_WS_WIN
+#  include <windows.h>
+#endif
+
 #include <QSystemTrayIcon>
 
 #include "qtui.h"
-#include "sessionsettings.h"
 #include "titlesetter.h"
+#include "uisettings.h"
 
 class ActionCollection;
+class BufferHotListFilter;
 class BufferView;
 class BufferViewConfig;
 class ClientBufferViewConfig;
@@ -70,19 +75,30 @@ class MainWin
 
     inline SystemTray *systemTray() const;
 
-    virtual bool event(QEvent *event);
+    bool event(QEvent *event);
 
     static void flagRemoteCoreOnly(QObject *object) { object->setProperty("REMOTE_CORE_ONLY", true); }
     static bool isRemoteCoreOnly(QObject *object) { return object->property("REMOTE_CORE_ONLY").toBool(); }
 
+    void saveStateToSettings(UiSettings &);
+    void restoreStateFromSettings(UiSettings &);
+
   public slots:
-    void saveStateToSession(const QString &sessionId);
-    void saveStateToSessionSettings(SessionSettings &s);
     void showStatusBarMessage(const QString &message);
+
+    void toggleMinimizedToTray();
+
+    //! Bring window to front and focus it
+    void forceActivated();
+
+    //! Quit application
+    void quit();
 
   protected:
     void closeEvent(QCloseEvent *event);
-    virtual void changeEvent(QEvent *event);
+    void changeEvent(QEvent *event);
+    void moveEvent(QMoveEvent *event);
+    void resizeEvent(QResizeEvent *event);
 
   protected slots:
     void connectedToCore();
@@ -90,7 +106,6 @@ class MainWin
     void updateLagIndicator(int lag = -1);
     void disconnectedFromCore();
     void setDisconnectedState();
-    void systrayActivated(QSystemTrayIcon::ActivationReason);
 
   private slots:
     void addBufferView(int bufferViewConfigId);
@@ -111,8 +126,11 @@ class MainWin
     void on_actionConfigureNetworks_triggered();
     void on_actionConfigureViews_triggered();
     void on_actionLockLayout_toggled(bool lock);
+    void on_jumpHotBuffer_triggered();
     void on_actionDebugNetworkModel_triggered();
+    void on_actionDebugBufferViewOverlay_triggered();
     void on_actionDebugMessageModel_triggered();
+    void on_actionDebugHotList_triggered();
     void on_actionDebugLog_triggered();
 
     void clientNetworkCreated(NetworkId);
@@ -124,6 +142,8 @@ class MainWin
 
     void loadLayout();
     void saveLayout();
+
+    void bufferViewToggled(bool enabled);
 
   signals:
     void connectToCore(const QVariantMap &connInfo);
@@ -151,11 +171,12 @@ class MainWin
     void setupSystray();
     void setupTitleSetter();
     void setupToolBars();
+    void setupHotList();
 
     void updateIcon();
-    void hideToTray();
-    void toggleMinimizedToTray();
     void enableMenus();
+
+    void hideToTray();
 
     SystemTray *_systemTray;
 
@@ -169,6 +190,16 @@ class MainWin
     QToolBar *_mainToolBar, *_chatViewToolBar, *_nickToolBar;
 
     QWidget *_awayLog;
+
+    QSize _normalSize; //!< Size of the non-maximized window
+    QPoint _normalPos; //!< Position of the non-maximized window
+
+#ifdef Q_WS_WIN
+    DWORD dwTickCount;
+#endif
+
+    BufferHotListFilter *_bufferHotList;
+
     friend class QtUi;
 };
 

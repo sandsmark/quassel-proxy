@@ -26,6 +26,11 @@
 #  include <KMenuBar>
 #  include <KShortcutsDialog>
 #  include <KStatusBar>
+#  include <KToolBar>
+#endif
+
+#ifdef Q_WS_X11
+#  include <QX11Info>
 #endif
 
 #include "aboutdlg.h"
@@ -33,8 +38,11 @@
 #include "awaylogview.h"
 #include "action.h"
 #include "actioncollection.h"
+#include "bufferhotlistfilter.h"
 #include "buffermodel.h"
 #include "bufferview.h"
+#include "bufferviewoverlay.h"
+#include "bufferviewoverlayfilter.h"
 #include "bufferwidget.h"
 #include "channellistdlg.h"
 #include "chatlinemodel.h"
@@ -46,14 +54,16 @@
 #include "clientbacklogmanager.h"
 #include "clientbufferviewconfig.h"
 #include "clientbufferviewmanager.h"
+#include "clientignorelistmanager.h"
 #include "coreinfodlg.h"
 #include "coreconnectdlg.h"
 #include "contextmenuactionprovider.h"
+#include "debugbufferviewoverlay.h"
 #include "debuglogwidget.h"
 #include "debugmessagemodelfilter.h"
+#include "flatproxymodel.h"
 #include "iconloader.h"
 #include "inputwidget.h"
-#include "inputline.h"
 #include "irclistmodel.h"
 #include "ircconnectionwizard.h"
 #include "jumpkeyhandler.h"
@@ -62,7 +72,7 @@
 #include "qtuiapplication.h"
 #include "qtuimessageprocessor.h"
 #include "qtuisettings.h"
-#include "sessionsettings.h"
+#include "qtuistyle.h"
 #include "settingsdlg.h"
 #include "settingspagedlg.h"
 #include "systemtray.h"
@@ -88,10 +98,14 @@
 #include "settingspages/backlogsettingspage.h"
 #include "settingspages/bufferviewsettingspage.h"
 #include "settingspages/chatmonitorsettingspage.h"
-#include "settingspages/colorsettingspage.h"
+#include "settingspages/chatviewsettingspage.h"
+#include "settingspages/connectionsettingspage.h"
 #include "settingspages/generalsettingspage.h"
 #include "settingspages/highlightsettingspage.h"
 #include "settingspages/identitiessettingspage.h"
+#include "settingspages/ignorelistsettingspage.h"
+#include "settingspages/inputwidgetsettingspage.h"
+#include "settingspages/itemviewsettingspage.h"
 #include "settingspages/networkssettingspage.h"
 #include "settingspages/notificationssettingspage.h"
 
@@ -108,6 +122,10 @@ MainWin::MainWin(QWidget *parent)
     _titleSetter(this),
     _awayLog(0)
 {
+#ifdef Q_WS_WIN
+  dwTickCount = 0;
+#endif
+
   QtUiSettings uiSettings;
   QString style = uiSettings.value("Style", QString()).toString();
   if(!style.isEmpty()) {
@@ -121,20 +139,9 @@ MainWin::MainWin(QWidget *parent)
   updateIcon();
 
   installEventFilter(new JumpKeyHandler(this));
-
-  QtUiApplication* app = qobject_cast<QtUiApplication*> qApp;
-  connect(app, SIGNAL(saveStateToSession(const QString&)), SLOT(saveStateToSession(const QString&)));
-  connect(app, SIGNAL(saveStateToSessionSettings(SessionSettings&)), SLOT(saveStateToSessionSettings(SessionSettings&)));
 }
 
 void MainWin::init() {
-  QtUiSettings s;
-  if(s.value("MainWinSize").isValid())
-    resize(s.value("MainWinSize").toSize());
-  else
-    resize(QSize(800, 500));
-
-  connect(QApplication::instance(), SIGNAL(aboutToQuit()), SLOT(saveLayout()));
   connect(Client::instance(), SIGNAL(networkCreated(NetworkId)), SLOT(clientNetworkCreated(NetworkId)));
   connect(Client::instance(), SIGNAL(networkRemoved(NetworkId)), SLOT(clientNetworkRemoved(NetworkId)));
   connect(Client::messageModel(), SIGNAL(rowsInserted(const QModelIndex &, int, int)),
@@ -160,6 +167,7 @@ void MainWin::init() {
   setupToolBars();
   setupSystray();
   setupTitleSetter();
+  setupHotList();
 
 #ifndef HAVE_KDE
   QtUi::registerNotificationBackend(new TaskbarNotificationBackend(this));
@@ -175,15 +183,18 @@ void MainWin::init() {
   QtUi::registerNotificationBackend(new KNotificationBackend(this));
 #endif /* HAVE_KDE */
 
+  setDisconnectedState();  // Disable menus and stuff
+
+#ifdef HAVE_KDE
+  setAutoSaveSettings();
+#endif
+
   // restore mainwin state
-  restoreState(s.value("MainWinState").toByteArray());
+  QtUiSettings s;
+  restoreStateFromSettings(s);
 
   // restore locked state of docks
   QtUi::actionCollection("General")->action("LockLayout")->setChecked(s.value("LockLayout", false).toBool());
-
-  setDisconnectedState();  // Disable menus and stuff
-
-  show();
 
   if(Quassel::runMode() != Quassel::Monolithic) {
     showCoreConnectionDlg(true); // autoconnect if appropriate
@@ -193,10 +204,58 @@ void MainWin::init() {
 }
 
 MainWin::~MainWin() {
+
+}
+
+void MainWin::quit() {
   QtUiSettings s;
-  s.setValue("MainWinSize", size());
-  s.setValue("MainWinPos", pos());
+  saveStateToSettings(s);
+  saveLayout();
+  QApplication::quit();
+}
+
+void MainWin::saveStateToSettings(UiSettings &s) {
+  s.setValue("MainWinSize", _normalSize);
+  s.setValue("MainWinPos", _normalPos);
   s.setValue("MainWinState", saveState());
+  s.setValue("MainWinGeometry", saveGeometry());
+  s.setValue("MainWinMinimized", isMinimized());
+  s.setValue("MainWinMaximized", isMaximized());
+  s.setValue("MainWinHidden", !isVisible());
+
+#ifdef HAVE_KDE
+  saveAutoSaveSettings();
+#endif
+}
+
+void MainWin::restoreStateFromSettings(UiSettings &s) {
+  _normalSize = s.value("MainWinSize", size()).toSize();
+  _normalPos = s.value("MainWinPos", pos()).toPoint();
+  bool maximized = s.value("MainWinMaximized", false).toBool();
+
+#ifndef HAVE_KDE
+  restoreGeometry(s.value("MainWinGeometry").toByteArray());
+
+  if(maximized) {
+    // restoreGeometry() fails if the windows was maximized, so we resize and position explicitly
+    resize(_normalSize);
+    move(_normalPos);
+  }
+
+  restoreState(s.value("MainWinState").toByteArray());
+
+#else
+  move(_normalPos);
+#endif
+
+  if(s.value("MainWinHidden").toBool())
+    hideToTray();
+  else if(s.value("MainWinMinimized").toBool())
+    showMinimized();
+  else if(maximized)
+    showMaximized();
+  else
+    show();
 }
 
 void MainWin::updateIcon() {
@@ -227,10 +286,10 @@ void MainWin::setupActions() {
   coll->addAction("ConfigureNetworks", new Action(SmallIcon("configure"), tr("Configure &Networks..."), coll,
                                               this, SLOT(on_actionConfigureNetworks_triggered())));
   coll->addAction("Quit", new Action(SmallIcon("application-exit"), tr("&Quit"), coll,
-                                      qApp, SLOT(quit()), tr("Ctrl+Q")));
+                                      this, SLOT(quit()), tr("Ctrl+Q")));
 
   // View
-  coll->addAction("ConfigureBufferViews", new Action(tr("&Configure Buffer Views..."), coll,
+  coll->addAction("ConfigureBufferViews", new Action(tr("&Configure Chat Lists..."), coll,
                                              this, SLOT(on_actionConfigureViews_triggered())));
 
   QAction *lockAct = coll->addAction("LockLayout", new Action(tr("&Lock Layout"), coll));
@@ -238,7 +297,7 @@ void MainWin::setupActions() {
   connect(lockAct, SIGNAL(toggled(bool)), SLOT(on_actionLockLayout_toggled(bool)));
 
   coll->addAction("ToggleSearchBar", new Action(SmallIcon("edit-find"), tr("Show &Search Bar"), coll,
-						0, 0, tr("Ctrl+F")))->setCheckable(true);
+						0, 0, QKeySequence::Find))->setCheckable(true);
   coll->addAction("ShowAwayLog", new Action(tr("Show Away Log"), coll,
 					    this, SLOT(showAwayLog())));
   coll->addAction("ToggleStatusBar", new Action(tr("Show Status &Bar"), coll,
@@ -255,10 +314,20 @@ void MainWin::setupActions() {
                                          qApp, SLOT(aboutQt())));
   coll->addAction("DebugNetworkModel", new Action(SmallIcon("tools-report-bug"), tr("Debug &NetworkModel"), coll,
                                        this, SLOT(on_actionDebugNetworkModel_triggered())));
+  coll->addAction("DebugBufferViewOverlay", new Action(SmallIcon("tools-report-bug"), tr("Debug &BufferViewOverlay"), coll,
+                                       this, SLOT(on_actionDebugBufferViewOverlay_triggered())));
   coll->addAction("DebugMessageModel", new Action(SmallIcon("tools-report-bug"), tr("Debug &MessageModel"), coll,
                                        this, SLOT(on_actionDebugMessageModel_triggered())));
+  coll->addAction("DebugHotList", new Action(SmallIcon("tools-report-bug"), tr("Debug &HotList"), coll,
+                                       this, SLOT(on_actionDebugHotList_triggered())));
   coll->addAction("DebugLog", new Action(SmallIcon("tools-report-bug"), tr("Debug &Log"), coll,
                                        this, SLOT(on_actionDebugLog_triggered())));
+  coll->addAction("ReloadStyle", new Action(SmallIcon("view-refresh"), tr("Reload Stylesheet"), coll,
+                                       QtUi::style(), SLOT(reload()), QKeySequence::Refresh));
+
+  // Navigation
+  coll->addAction("JumpHotBuffer", new Action(tr("Jump to hot chat"), coll,
+                                              this, SLOT(on_jumpHotBuffer_triggered()), QKeySequence(Qt::META + Qt::Key_A)));
 }
 
 void MainWin::setupMenus() {
@@ -284,7 +353,7 @@ void MainWin::setupMenus() {
   _fileMenu->addAction(coll->action("Quit"));
 
   _viewMenu = menuBar()->addMenu(tr("&View"));
-  _bufferViewsMenu = _viewMenu->addMenu(tr("&Buffer Views"));
+  _bufferViewsMenu = _viewMenu->addMenu(tr("&Chat Lists"));
   _bufferViewsMenu->addAction(coll->action("ConfigureBufferViews"));
   _toolbarMenu = _viewMenu->addMenu(tr("&Toolbars"));
   _viewMenu->addSeparator();
@@ -315,8 +384,12 @@ void MainWin::setupMenus() {
   _helpMenu->addSeparator();
   _helpDebugMenu = _helpMenu->addMenu(SmallIcon("tools-report-bug"), tr("Debug"));
   _helpDebugMenu->addAction(coll->action("DebugNetworkModel"));
+  _helpDebugMenu->addAction(coll->action("DebugBufferViewOverlay"));
   _helpDebugMenu->addAction(coll->action("DebugMessageModel"));
+  _helpDebugMenu->addAction(coll->action("DebugHotList"));
   _helpDebugMenu->addAction(coll->action("DebugLog"));
+  _helpDebugMenu->addSeparator();
+  _helpDebugMenu->addAction(coll->action("ReloadStyle"));
 }
 
 void MainWin::setupBufferWidget() {
@@ -340,7 +413,7 @@ void MainWin::addBufferView(ClientBufferViewConfig *config) {
   //create the view and initialize it's filter
   BufferView *view = new BufferView(dock);
   view->setFilteredModel(Client::bufferModel(), config);
-  view->installEventFilter(_inputWidget->inputLine()); // for key presses
+  view->installEventFilter(_inputWidget); // for key presses
   view->show();
 
   Client::bufferModel()->synchronizeView(view);
@@ -351,6 +424,7 @@ void MainWin::addBufferView(ClientBufferViewConfig *config) {
   addDockWidget(Qt::LeftDockWidgetArea, dock);
   _bufferViewsMenu->addAction(dock->toggleViewAction());
 
+  connect(dock->toggleViewAction(), SIGNAL(toggled(bool)), this, SLOT(bufferViewToggled(bool)));
   _bufferViews.append(dock);
 }
 
@@ -367,6 +441,35 @@ void MainWin::removeBufferView(int bufferViewConfigId) {
       removeAction(action);
       dock->deleteLater();
     }
+  }
+}
+
+void MainWin::bufferViewToggled(bool enabled) {
+  QAction *action = qobject_cast<QAction *>(sender());
+  Q_ASSERT(action);
+  BufferViewDock *dock = qobject_cast<BufferViewDock *>(action->parent());
+  Q_ASSERT(dock);
+  if(enabled) {
+    Client::bufferViewOverlay()->addView(dock->bufferViewId());
+    BufferViewConfig *config = dock->config();
+    if(config && config->isInitialized()) {
+      BufferIdList buffers;
+      if(config->networkId().isValid()) {
+        foreach(BufferId bufferId, config->bufferList()) {
+          if(Client::networkModel()->networkId(bufferId) == config->networkId())
+            buffers << bufferId;
+        }
+        foreach(BufferId bufferId, config->temporarilyRemovedBuffers().toList()) {
+          if(Client::networkModel()->networkId(bufferId) == config->networkId())
+            buffers << bufferId;
+        }
+      } else {
+        buffers = BufferIdList::fromSet(config->bufferList().toSet() + config->temporarilyRemovedBuffers());
+      }
+      Client::backlogManager()->checkForBacklog(buffers);
+    }
+  } else {
+    Client::bufferViewOverlay()->removeView(dock->bufferViewId());
   }
 }
 
@@ -509,6 +612,12 @@ void MainWin::setupStatusBar() {
   connect(showStatusbar, SIGNAL(toggled(bool)), this, SLOT(saveStatusBarStatus(bool)));
 }
 
+void MainWin::setupHotList() {
+  FlatProxyModel *flatProxy = new FlatProxyModel(this);
+  flatProxy->setSourceModel(Client::bufferModel());
+  _bufferHotList = new BufferHotListFilter(flatProxy);
+}
+
 void MainWin::saveStatusBarStatus(bool enabled) {
   QtUiSettings uiSettings;
   uiSettings.setValue("ShowStatusBar", enabled);
@@ -516,11 +625,6 @@ void MainWin::saveStatusBarStatus(bool enabled) {
 
 void MainWin::setupSystray() {
   _systemTray = new SystemTray(this);
-
-#ifndef Q_WS_MAC
-  connect(systemTray(), SIGNAL(activated(QSystemTrayIcon::ActivationReason)), this, SLOT(systrayActivated(QSystemTrayIcon::ActivationReason)));
-#endif
-
 }
 
 void MainWin::setupToolBars() {
@@ -532,32 +636,18 @@ void MainWin::setupToolBars() {
 #ifdef Q_WS_MAC
   setUnifiedTitleAndToolBarOnMac(true);
 #endif
-  _mainToolBar = addToolBar("Main Toolbar");
+
+#ifdef HAVE_KDE
+  _mainToolBar = new KToolBar("MainToolBar", this, Qt::TopToolBarArea, false, true, true);
+#else
+  _mainToolBar = new QToolBar(this);
   _mainToolBar->setObjectName("MainToolBar");
+#endif
+  _mainToolBar->setWindowTitle(tr("Main Toolbar"));
+  addToolBar(_mainToolBar);
 
   QtUi::toolBarActionProvider()->addActions(_mainToolBar, ToolBarActionProvider::MainToolBar);
   _toolbarMenu->addAction(_mainToolBar->toggleViewAction());
-
-  //_nickToolBar = addToolBar("User");
-  //_nickToolBar->setObjectName("NickToolBar");
-  //QtUi::toolBarActionProvider()->addActions(_nickToolBar, ToolBarActionProvider::NickToolBar);
-
-#ifdef HAVE_KDE
-  _mainToolBar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-  //_nickToolBar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-#endif
-}
-
-void MainWin::changeEvent(QEvent *event) {
-  if(event->type() == QEvent::WindowStateChange) {
-    if(windowState() & Qt::WindowMinimized) {
-      QtUiSettings s;
-      if(s.value("UseSystemTrayIcon").toBool() && s.value("MinimizeOnMinimize").toBool()) {
-	hideToTray();
-	event->accept();
-      }
-    }
-  }
 }
 
 void MainWin::connectedToCore() {
@@ -720,9 +810,11 @@ void MainWin::awayLogDestroyed() {
 void MainWin::showSettingsDlg() {
   SettingsDlg *dlg = new SettingsDlg();
 
-  //Category: Appearance
-  dlg->registerSettingsPage(new AppearanceSettingsPage(dlg)); //General
-  dlg->registerSettingsPage(new ColorSettingsPage(dlg));
+  //Category: Interface
+  dlg->registerSettingsPage(new AppearanceSettingsPage(dlg));
+  dlg->registerSettingsPage(new ChatViewSettingsPage(dlg));
+  dlg->registerSettingsPage(new ItemViewSettingsPage(dlg));
+  dlg->registerSettingsPage(new InputWidgetSettingsPage(dlg));
   dlg->registerSettingsPage(new HighlightSettingsPage(dlg));
   dlg->registerSettingsPage(new NotificationsSettingsPage(dlg));
   dlg->registerSettingsPage(new BacklogSettingsPage(dlg));
@@ -731,9 +823,11 @@ void MainWin::showSettingsDlg() {
 
   //Category: Misc
   dlg->registerSettingsPage(new GeneralSettingsPage(dlg));
+  dlg->registerSettingsPage(new ConnectionSettingsPage(dlg));
   dlg->registerSettingsPage(new IdentitiesSettingsPage(dlg));
   dlg->registerSettingsPage(new NetworksSettingsPage(dlg));
   dlg->registerSettingsPage(new AliasesSettingsPage(dlg));
+  dlg->registerSettingsPage(new IgnoreListSettingsPage(dlg));
 
   dlg->show();
 }
@@ -748,23 +842,48 @@ void MainWin::showShortcutsDlg() {
 }
 #endif
 
+/********************************************************************************************************/
+
+bool MainWin::event(QEvent *event) {
+  if(event->type() == QEvent::WindowActivate)
+    QtUi::closeNotifications();
+  return QMainWindow::event(event);
+}
+
+void MainWin::moveEvent(QMoveEvent *event) {
+  if(!(windowState() & Qt::WindowMaximized))
+    _normalPos = event->pos();
+
+  QMainWindow::moveEvent(event);
+}
+
+void MainWin::resizeEvent(QResizeEvent *event) {
+  if(!(windowState() & Qt::WindowMaximized))
+    _normalSize = event->size();
+
+  QMainWindow::resizeEvent(event);
+}
+
 void MainWin::closeEvent(QCloseEvent *event) {
   QtUiSettings s;
   QtUiApplication* app = qobject_cast<QtUiApplication*> qApp;
   Q_ASSERT(app);
-  if(!app->aboutToQuit() && s.value("UseSystemTrayIcon").toBool() && s.value("MinimizeOnClose").toBool()) {
-    toggleMinimizedToTray();
+  if(!app->isAboutToQuit() && s.value("UseSystemTrayIcon").toBool() && s.value("MinimizeOnClose").toBool()) {
+    hideToTray();
     event->ignore();
   } else {
     event->accept();
-    QApplication::quit();
+    quit();
   }
 }
 
-void MainWin::systrayActivated(QSystemTrayIcon::ActivationReason activationReason) {
-  if(activationReason == QSystemTrayIcon::Trigger) {
-    toggleMinimizedToTray();
-  }
+void MainWin::changeEvent(QEvent *event) {
+#ifdef Q_WS_WIN
+  if(event->type() == QEvent::ActivationChange)
+    dwTickCount = GetTickCount();  // needed for toggleMinimizedToTray()
+#endif
+
+  QMainWindow::changeEvent(event);
 }
 
 void MainWin::hideToTray() {
@@ -772,29 +891,55 @@ void MainWin::hideToTray() {
     qWarning() << Q_FUNC_INFO << "was called with no SystemTray available!";
     return;
   }
-  clearFocus();
   hide();
   systemTray()->setIconVisible();
 }
 
 void MainWin::toggleMinimizedToTray() {
+#ifdef Q_WS_WIN
+  // the problem is that we lose focus when the systray icon is activated
+  // and we don't know the former active window
+  // therefore we watch for activation event and use our stopwatch :)
+  // courtesy: KSystemTrayIcon
+  if(GetTickCount() - dwTickCount >= 300)
+    // we weren't active in the last 300ms -> activate
+    forceActivated();
+  else
+    hideToTray();
+
+#else
+
+  if(!isVisible() || isMinimized())
+    // restore
+    forceActivated();
+  else
+    hideToTray();
+
+#endif
+}
+
+void MainWin::forceActivated() {
+#ifdef Q_WS_X11
+  // Bypass focus stealing prevention
+  QX11Info::setAppUserTime(QX11Info::appTime());
+#endif
+
   if(windowState() & Qt::WindowMinimized) {
     // restore
     setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
-    show();
-    activateWindow();
-    raise();
-  } else {
-    setWindowState((windowState() & ~Qt::WindowActive) | Qt::WindowMinimized);
-    hideToTray();
   }
+
+  // this does not actually work on all platforms... and causes more evil than good
+  // move(frameGeometry().topLeft()); // avoid placement policies
+  show();
+  raise();
+  activateWindow();
 }
 
 void MainWin::messagesInserted(const QModelIndex &parent, int start, int end) {
   Q_UNUSED(parent);
 
-  if(QApplication::activeWindow() != 0)
-    return;
+  bool hasFocus = QApplication::activeWindow() != 0;
 
   for(int i = start; i <= end; i++) {
     QModelIndex idx = Client::messageModel()->index(i, ChatLineModel::ContentsColumn);
@@ -803,26 +948,36 @@ void MainWin::messagesInserted(const QModelIndex &parent, int start, int end) {
       continue;
     }
     Message::Flags flags = (Message::Flags)idx.data(ChatLineModel::FlagsRole).toInt();
-    if(flags.testFlag(Message::Backlog) || flags.testFlag(Message::Self)) continue;
-    flags |= Message::Backlog;  // we only want to trigger a highlight once!
-    Client::messageModel()->setData(idx, (int)flags, ChatLineModel::FlagsRole);
+    if(flags.testFlag(Message::Backlog) || flags.testFlag(Message::Self))
+      continue;
 
     BufferId bufId = idx.data(ChatLineModel::BufferIdRole).value<BufferId>();
     BufferInfo::Type bufType = Client::networkModel()->bufferType(bufId);
 
-    if(flags & Message::Highlight || bufType == BufferInfo::QueryBuffer) {
+    if(hasFocus && bufId == _bufferWidget->currentBuffer())
+      continue;
+
+    if((flags & Message::Highlight || bufType == BufferInfo::QueryBuffer)
+      && !(Client::ignoreListManager() && Client::ignoreListManager()->match(idx.data(MessageModel::MessageRole).value<Message>(),
+                                                                             Client::networkModel()->networkName(bufId))))
+    {
       QModelIndex senderIdx = Client::messageModel()->index(i, ChatLineModel::SenderColumn);
       QString sender = senderIdx.data(ChatLineModel::EditRole).toString();
       QString contents = idx.data(ChatLineModel::DisplayRole).toString();
-      QtUi::invokeNotification(bufId, sender, contents);
+      AbstractNotificationBackend::NotificationType type;
+
+      if(bufType == BufferInfo::QueryBuffer && !hasFocus)
+        type = AbstractNotificationBackend::PrivMsg;
+      else if(bufType == BufferInfo::QueryBuffer && hasFocus)
+        type = AbstractNotificationBackend::PrivMsgFocused;
+      else if(flags & Message::Highlight && !hasFocus)
+        type = AbstractNotificationBackend::Highlight;
+      else
+        type = AbstractNotificationBackend::HighlightFocused;
+
+      QtUi::invokeNotification(bufId, type, sender, contents);
     }
   }
-}
-
-bool MainWin::event(QEvent *event) {
-  if(event->type() == QEvent::WindowActivate)
-    QtUi::closeNotifications();
-  return QMainWindow::event(event);
 }
 
 void MainWin::clientNetworkCreated(NetworkId id) {
@@ -885,6 +1040,15 @@ void MainWin::connectOrDisconnectFromNet() {
   else net->requestDisconnect();
 }
 
+void MainWin::on_jumpHotBuffer_triggered() {
+  if(!_bufferHotList->rowCount())
+    return;
+
+  QModelIndex topIndex = _bufferHotList->index(0, 0);
+  BufferId bufferId = _bufferHotList->data(topIndex, NetworkModel::BufferIdRole).value<BufferId>();
+  Client::bufferModel()->switchToBuffer(bufferId);
+}
+
 void MainWin::on_actionDebugNetworkModel_triggered() {
   QTreeView *view = new QTreeView;
   view->setAttribute(Qt::WA_DeleteOnClose);
@@ -895,6 +1059,19 @@ void MainWin::on_actionDebugNetworkModel_triggered() {
   view->setColumnWidth(2, 80);
   view->resize(610, 300);
   view->show();
+}
+
+void MainWin::on_actionDebugHotList_triggered() {
+  QTreeView *view = new QTreeView;
+  view->setAttribute(Qt::WA_DeleteOnClose);
+  view->setModel(_bufferHotList);
+  view->show();
+}
+
+void MainWin::on_actionDebugBufferViewOverlay_triggered() {
+  DebugBufferViewOverlay *overlay = new DebugBufferViewOverlay(0);
+  overlay->setAttribute(Qt::WA_DeleteOnClose);
+  overlay->show();
 }
 
 void MainWin::on_actionDebugMessageModel_triggered() {
@@ -911,22 +1088,6 @@ void MainWin::on_actionDebugMessageModel_triggered() {
 void MainWin::on_actionDebugLog_triggered() {
   DebugLogWidget *logWidget = new DebugLogWidget(0);
   logWidget->show();
-}
-
-void MainWin::saveStateToSession(const QString &sessionId) {
-  return;
-  SessionSettings s(sessionId);
-
-  s.setValue("MainWinSize", size());
-  s.setValue("MainWinPos", pos());
-  s.setValue("MainWinState", saveState());
-}
-
-void MainWin::saveStateToSessionSettings(SessionSettings & s)
-{
-  s.setValue("MainWinSize", size());
-  s.setValue("MainWinPos", pos());
-  s.setValue("MainWinState", saveState());
 }
 
 void MainWin::showStatusBarMessage(const QString &message) {

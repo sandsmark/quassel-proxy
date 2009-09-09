@@ -27,6 +27,7 @@
 #include "signalproxy.h"
 #include "util.h"
 
+INIT_SYNCABLE_OBJECT(SyncableObject)
 SyncableObject::SyncableObject(QObject *parent)
   : QObject(parent),
     _initialized(false),
@@ -47,6 +48,15 @@ SyncableObject::SyncableObject(const SyncableObject &other, QObject *parent)
     _initialized(other._initialized),
     _allowClientUpdates(other._allowClientUpdates)
 {
+}
+
+SyncableObject::~SyncableObject() {
+  QList<SignalProxy *>::iterator proxyIter = _signalProxies.begin();
+  while(proxyIter != _signalProxies.end()) {
+    SignalProxy *proxy = (*proxyIter);
+    proxyIter = _signalProxies.erase(proxyIter);
+    proxy->stopSynchronize(this);
+  }
 }
 
 SyncableObject &SyncableObject::operator=(const SyncableObject &other) {
@@ -140,18 +150,46 @@ void SyncableObject::renameObject(const QString &newName) {
   const QString oldName = objectName();
   if(oldName != newName) {
     setObjectName(newName);
-    emit objectRenamed(newName, oldName);
+    foreach(SignalProxy *proxy, _signalProxies) {
+      proxy->renameObject(this, newName, oldName);
+    }
   }
 }
 
 void SyncableObject::update(const QVariantMap &properties) {
   fromVariantMap(properties);
-  emit updated(properties);
+  SYNC(ARG(properties))
+  emit updated();
 }
 
 void SyncableObject::requestUpdate(const QVariantMap &properties) {
   if(allowClientUpdates()) {
     update(properties);
   }
-  emit updateRequested(properties);
+  REQUEST(ARG(properties))
+}
+
+void SyncableObject::sync_call__(SignalProxy::ProxyMode modeType, const char *funcname, ...) const {
+  //qDebug() << Q_FUNC_INFO << modeType << funcname;
+  foreach(SignalProxy *proxy, _signalProxies) {
+    va_list ap;
+    va_start(ap, funcname);
+    proxy->sync_call__(this, modeType, funcname, ap);
+    va_end(ap);
+  }
+}
+
+void SyncableObject::synchronize(SignalProxy *proxy) {
+  if(_signalProxies.contains(proxy))
+    return;
+  _signalProxies << proxy;
+}
+
+void SyncableObject::stopSynchronize(SignalProxy *proxy) {
+  for(int i = 0; i < _signalProxies.count(); i++) {
+    if(_signalProxies[i] == proxy) {
+      _signalProxies.removeAt(i);
+      break;
+    }
+  }
 }

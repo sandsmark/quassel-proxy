@@ -108,6 +108,7 @@ public:
  public slots:
   void updateForViewport(qreal width, qreal height);
   void setWidth(qreal width);
+  void layout(int start, int end, qreal width);
 
   // these are used by the chatitems to notify the scene and manage selections
   void setSelectingItem(ChatItem *item);
@@ -141,6 +142,7 @@ protected:
 protected slots:
   void rowsInserted(const QModelIndex &, int, int);
   void rowsAboutToBeRemoved(const QModelIndex &, int, int);
+  void dataChanged(const QModelIndex &, const QModelIndex &);
 
 private slots:
   void firstHandlePositionChanged(qreal xpos);

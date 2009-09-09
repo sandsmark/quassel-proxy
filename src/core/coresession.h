@@ -26,12 +26,15 @@
 
 #include "corecoreinfo.h"
 #include "corealiasmanager.h"
+#include "coreignorelistmanager.h"
 #include "message.h"
+#include "storage.h"
 
 class CoreBacklogManager;
 class CoreBufferSyncer;
 class CoreBufferViewManager;
 class CoreIrcListHelper;
+class CoreNetworkConfig;
 class Identity;
 class CoreIdentity;
 class NetworkConnection;
@@ -51,8 +54,9 @@ public:
   QList<BufferInfo> buffers() const;
   inline UserId user() const { return _user; }
   CoreNetwork *network(NetworkId) const;
-  NetworkConnection *networkConnection(NetworkId) const;
   CoreIdentity *identity(IdentityId) const;
+  inline CoreNetworkConfig *networkConfig() const { return _networkConfig; }
+  NetworkConnection *networkConnection(NetworkId) const;
 
   QVariant sessionState();
 
@@ -134,7 +138,7 @@ private slots:
   void removeClient(QIODevice *dev);
 
   void recvStatusMsgFromServer(QString msg);
-  void recvMessageFromServer(Message::Type, BufferInfo::Type, QString target, QString text, QString sender = "", Message::Flags flags = Message::None);
+  void recvMessageFromServer(NetworkId networkId, Message::Type, BufferInfo::Type, const QString &target, const QString &text, const QString &sender = "", Message::Flags flags = Message::None);
 
   void destroyNetwork(NetworkId);
 
@@ -145,9 +149,13 @@ private slots:
 
   void updateIdentityBySender();
 
+protected:
+  virtual void customEvent(QEvent *event);
+
 private:
   void loadSettings();
   void initScriptEngine();
+  void processMessages();
 
   UserId _user;
 
@@ -162,10 +170,25 @@ private:
   CoreBacklogManager *_backlogManager;
   CoreBufferViewManager *_bufferViewManager;
   CoreIrcListHelper *_ircListHelper;
+  CoreNetworkConfig *_networkConfig;
   CoreCoreInfo _coreInfo;
 
   QScriptEngine *scriptEngine;
 
+  struct RawMessage {
+    NetworkId networkId;
+    Message::Type type;
+    BufferInfo::Type bufferType;
+    QString target;
+    QString text;
+    QString sender;
+    Message::Flags flags;
+    RawMessage(NetworkId networkId, Message::Type type, BufferInfo::Type bufferType, const QString &target, const QString &text, const QString &sender, Message::Flags flags)
+      : networkId(networkId), type(type), bufferType(bufferType), target(target), text(text), sender(sender), flags(flags) {}
+  };
+  QList<RawMessage> _messageQueue;
+  bool _processMessages;
+  CoreIgnoreListManager _ignoreListManager;
 };
 
 #endif

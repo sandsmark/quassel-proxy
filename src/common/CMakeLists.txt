@@ -13,11 +13,14 @@ set(SOURCES
     bufferviewmanager.cpp
     cliparser.cpp
     identity.cpp
+    ignorelistmanager.cpp
     ircchannel.cpp
+    irclisthelper.cpp
     ircuser.cpp
     logger.cpp
     message.cpp
     network.cpp
+    networkconfig.cpp
     quassel.cpp
     settings.cpp
     signalproxy.cpp
@@ -39,10 +42,12 @@ set(MOC_HDRS
     bufferviewmanager.h
     coreinfo.h
     identity.h
+    ignorelistmanager.h
     ircchannel.h
     irclisthelper.h
     ircuser.h
     network.h
+    networkconfig.h
     settings.h
     signalproxy.h
     syncableobject.h)

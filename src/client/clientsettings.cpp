@@ -185,3 +185,59 @@ bool KnownHostsSettings::isKnownHost(const QSslSocket *socket) {
   return isKnownHost(socket->peerAddress(), socket->peerCertificate().digest());
 }
 #endif
+
+
+// ========================================
+//  TabCompletionSettings
+// ========================================
+
+TabCompletionSettings::TabCompletionSettings() : ClientSettings("TabCompletion") {
+}
+
+void TabCompletionSettings::setCompletionSuffix(const QString &suffix) {
+  setLocalValue("CompletionSuffix", suffix);
+}
+
+QString TabCompletionSettings::completionSuffix() {
+  return localValue("CompletionSuffix", ": ").toString();
+}
+
+void TabCompletionSettings::setSortMode(SortMode mode) {
+  setLocalValue("SortMode", mode);
+}
+
+TabCompletionSettings::SortMode TabCompletionSettings::sortMode() {
+  return static_cast<SortMode>(localValue("SortMode"), LastActivity);
+}
+
+void TabCompletionSettings::setCaseSensitivity(Qt::CaseSensitivity cs) {
+  setLocalValue("CaseSensitivity", cs);
+}
+
+Qt::CaseSensitivity TabCompletionSettings::caseSensitivity() {
+  return (Qt::CaseSensitivity)localValue("CaseSensitivity", Qt::CaseInsensitive).toInt();
+}
+
+void TabCompletionSettings::setUseLastSpokenTo(bool use) {
+  setLocalValue("UseLastSpokenTo", use);
+}
+
+bool TabCompletionSettings::useLastSpokenTo() {
+  return localValue("UseLastSpokenTo", false).toBool();
+}
+
+// ========================================
+//  ItemViewSettings
+// ========================================
+
+ItemViewSettings::ItemViewSettings(const QString &group) : ClientSettings(group) {
+
+}
+
+bool ItemViewSettings::displayTopicInTooltip() {
+  return localValue("DisplayTopicInTooltip", false).toBool();
+}
+
+bool ItemViewSettings::mouseWheelChangesBuffer() {
+  return localValue("MouseWheelChangesBuffer", false).toBool();
+}

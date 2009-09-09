@@ -41,9 +41,7 @@ class SignalProxy : public QObject {
   class IODevicePeer;
   class SignalProxyPeer;
 
-  class Relay;
   class SignalRelay;
-  class SyncRelay;
 
 public:
   enum ProxyMode {
@@ -87,6 +85,7 @@ public:
   bool attachSlot(const QByteArray& sigName, QObject *recv, const char *slot);
 
   void synchronize(SyncableObject *obj);
+  void stopSynchronize(SyncableObject *obj);
 
   //! Writes a QVariant to a device.
   /** The data item is prefixed with the resulting blocksize,
@@ -103,9 +102,9 @@ public:
 
   class ExtendedMetaObject;
   ExtendedMetaObject *extendedMetaObject(const QMetaObject *meta) const;
-  ExtendedMetaObject *createExtendedMetaObject(const QMetaObject *meta);
+  ExtendedMetaObject *createExtendedMetaObject(const QMetaObject *meta, bool checkConflicts = false);
   inline ExtendedMetaObject *extendedMetaObject(const QObject *obj) const { return extendedMetaObject(metaObject(obj)); }
-  inline ExtendedMetaObject *createExtendedMetaObject(const QObject *obj) { return createExtendedMetaObject(metaObject(obj)); }
+  inline ExtendedMetaObject *createExtendedMetaObject(const QObject *obj, bool checkConflicts = false) { return createExtendedMetaObject(metaObject(obj), checkConflicts); }
 
   bool isSecure() const { return _secure; }
   void dumpProxyStats();
@@ -114,15 +113,15 @@ public slots:
   void detachObject(QObject *obj);
   void detachSignals(QObject *sender);
   void detachSlots(QObject *receiver);
-  void stopSync(QObject *obj);
 
 protected:
   void customEvent(QEvent *event);
+  void sync_call__(const SyncableObject *obj, ProxyMode modeType, const char *funcname, va_list ap);
+  void renameObject(const SyncableObject *obj, const QString &newname, const QString &oldname);
 
 private slots:
   void dataAvailable();
   void removePeerBySender();
-  void objectRenamed(const QString &newname, const QString &oldname);
   void objectRenamed(const QByteArray &classname, const QString &newname, const QString &oldname);
   void sendHeartBeat();
   void receiveHeartBeat(AbstractPeer *peer, const QVariantList &params);
@@ -183,8 +182,6 @@ private:
 
   // SignalRelay for all manually attached signals
   SignalRelay *_signalRelay;
-  // one SyncRelay per class
-  QHash<const QMetaObject *, SyncRelay *> _syncRelays;
 
   // RPC function -> (object, slot ID)
   typedef QPair<QObject*, int> MethodId;
@@ -202,6 +199,7 @@ private:
   bool _secure; // determines if all connections are in a secured state (using ssl or internal connections)
 
   friend class SignalRelay;
+  friend class SyncableObject;
 };
 
 
@@ -209,35 +207,55 @@ private:
 //  ExtendedMetaObject
 // ==================================================
 class SignalProxy::ExtendedMetaObject {
-public:
-  ExtendedMetaObject(const QMetaObject *meta);
+  class MethodDescriptor {
+  public:
+    MethodDescriptor(const QMetaMethod &method);
+    MethodDescriptor() : _returnType(-1), _minArgCount(-1), _receiverMode(SignalProxy::Client) {}
 
-  const QList<int> &argTypes(int methodId);
-  const int &returnType(int methodId);
-  const int &minArgCount(int methodId);
-  const QByteArray &methodName(int methodId);
-  const QHash<QByteArray, int> &syncMap();
+    inline const QByteArray &methodName() const { return _methodName; }
+    inline const QList<int> &argTypes() const { return _argTypes; }
+    inline int returnType() const { return _returnType; }
+    inline int minArgCount() const { return _minArgCount; }
+    inline SignalProxy::ProxyMode receiverMode() const { return _receiverMode; }
+
+  private:
+    QByteArray _methodName;
+    QList<int> _argTypes;
+    int _returnType;
+    int _minArgCount;
+    SignalProxy::ProxyMode _receiverMode; // Only acceptable as a Sync Call if the receiving SignalProxy is in this mode.
+  };
+
+public:
+  ExtendedMetaObject(const QMetaObject *meta, bool checkConflicts);
+
+  inline const QByteArray &methodName(int methodId) { return methodDescriptor(methodId).methodName(); }
+  inline const QList<int> &argTypes(int methodId) { return methodDescriptor(methodId).argTypes(); }
+  inline int returnType(int methodId) { return methodDescriptor(methodId).returnType(); }
+  inline int minArgCount(int methodId) { return methodDescriptor(methodId).minArgCount(); }
+  inline SignalProxy::ProxyMode receiverMode(int methodId) { return methodDescriptor(methodId).receiverMode(); }
+
+  inline int methodId(const QByteArray &methodName) { return _methodIds.contains(methodName) ? _methodIds[methodName] : -1; }
+
+  inline int updatedRemotelyId() { return _updatedRemotelyId; }
+  
+  inline const QHash<QByteArray, int> &slotMap() { return _methodIds; }
   const QHash<int, int> &receiveMap();
-  int updatedRemotelyId();
 
   const QMetaObject *metaObject() const { return _meta; }
 
   static QByteArray methodName(const QMetaMethod &method);
-  static bool methodsMatch(const QMetaMethod &signal, const QMetaMethod &slot);
   static QString methodBaseName(const QMetaMethod &method);
 
 private:
-  typedef QHash<int, QList<int> > ArgHash;
-  typedef QHash<int, QByteArray> MethodNameHash;
+  const MethodDescriptor &methodDescriptor(int methodId);
 
   const QMetaObject *_meta;
-  ArgHash _argTypes;
-  QHash<int, int> _returnType;
-  QHash<int, int> _minArgCount;
-  MethodNameHash _methodNames;
   int _updatedRemotelyId; // id of the updatedRemotely() signal - makes things faster
-  QHash<QByteArray, int> _syncMap;
-  QHash<int, int> _receiveMap;
+
+  QHash<int, MethodDescriptor> _methods;
+  QHash<QByteArray, int> _methodIds;
+  QHash<int, int> _receiveMap; // if slot x is called then hand over the result to slot y
 };
 
 

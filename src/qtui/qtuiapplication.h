@@ -30,7 +30,7 @@
 #include <QSessionManager>
 
 #include "quassel.h"
-#include "sessionsettings.h"
+#include "uisettings.h"
 
 class QtUi;
 
@@ -51,13 +51,10 @@ public:
   virtual void commitData(QSessionManager &manager);
   virtual void saveState(QSessionManager &manager);
 
-  inline bool aboutToQuit() const { return _aboutToQuit; }
+  inline bool isAboutToQuit() const { return _aboutToQuit; }
 
-signals:
-  void saveStateToSession(const QString &sessionId);
-  void saveStateToSessionSettings(SessionSettings &s); // FIXME refs in signals won't probably work
-  void resumeFromSession(const QString sessionId);
-  void resumeFromSessionSettings(SessionSettings &s);
+protected:
+  virtual void quit();
 
 private:
   bool _aboutToQuit;

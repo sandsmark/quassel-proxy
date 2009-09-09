@@ -23,11 +23,13 @@
 #include <QObject>
 
 #include "backlogsettings.h"
+#include "bufferviewoverlay.h"
 #include "clientbacklogmanager.h"
 
-BacklogRequester::BacklogRequester(bool buffering, ClientBacklogManager *backlogManager)
+BacklogRequester::BacklogRequester(bool buffering, RequesterType requesterType, ClientBacklogManager *backlogManager)
   : backlogManager(backlogManager),
     _isBuffering(buffering),
+    _requesterType(requesterType),
     _totalBuffers(0)
 {
   Q_ASSERT(backlogManager);
@@ -49,21 +51,36 @@ bool BacklogRequester::buffer(BufferId bufferId, const MessageList &messages) {
   return !_buffersWaiting.isEmpty();
 }
 
+BufferIdList BacklogRequester::allBufferIds() const {
+  QSet<BufferId> bufferIds = Client::bufferViewOverlay()->bufferIds();
+  bufferIds += Client::bufferViewOverlay()->tempRemovedBufferIds();
+  return bufferIds.toList();
+}
+
+void BacklogRequester::flushBuffer() {
+  if(!_buffersWaiting.isEmpty()) {
+    qWarning() << Q_FUNC_INFO << "was called before all backlog was received:"
+               << _buffersWaiting.count() << "buffers are waiting.";
+  }
+  _bufferedMessages.clear();
+  _totalBuffers = 0;
+  _buffersWaiting.clear();
+}
+
 // ========================================
 //  FIXED BACKLOG REQUESTER
 // ========================================
 FixedBacklogRequester::FixedBacklogRequester(ClientBacklogManager *backlogManager)
-  : BacklogRequester(true, backlogManager)
+  : BacklogRequester(true, BacklogRequester::PerBufferFixed, backlogManager)
 {
   BacklogSettings backlogSettings;
   _backlogCount = backlogSettings.fixedBacklogAmount();
 }
 
-void FixedBacklogRequester::requestBacklog() {
-  QList<BufferId> allBuffers = allBufferIds();
-  setWaitingBuffers(allBuffers);
-  backlogManager->emitMessagesRequested(QObject::tr("Requesting a total of up to %1 backlog messages for %2 buffers").arg(_backlogCount * allBuffers.count()).arg(allBuffers.count()));
-  foreach(BufferId bufferId, allBuffers) {
+void FixedBacklogRequester::requestBacklog(const BufferIdList &bufferIds) {
+  setWaitingBuffers(bufferIds);
+  backlogManager->emitMessagesRequested(QObject::tr("Requesting a total of up to %1 backlog messages for %2 buffers").arg(_backlogCount * bufferIds.count()).arg(bufferIds.count()));
+  foreach(BufferId bufferId, bufferIds) {
     backlogManager->requestBacklog(bufferId, -1, -1, _backlogCount);
   }
 }
@@ -72,14 +89,14 @@ void FixedBacklogRequester::requestBacklog() {
 //  GLOBAL UNREAD BACKLOG REQUESTER
 // ========================================
 GlobalUnreadBacklogRequester::GlobalUnreadBacklogRequester(ClientBacklogManager *backlogManager)
-  : BacklogRequester(false, backlogManager)
+  : BacklogRequester(false, BacklogRequester::GlobalUnread, backlogManager)
 {
   BacklogSettings backlogSettings;
   _limit = backlogSettings.globalUnreadBacklogLimit();
   _additional = backlogSettings.globalUnreadBacklogAdditional();
 }
 
-void GlobalUnreadBacklogRequester::requestBacklog() {
+void GlobalUnreadBacklogRequester::requestInitialBacklog() {
   MsgId oldestUnreadMessage;
   foreach(BufferId bufferId, allBufferIds()) {
     MsgId msgId = Client::networkModel()->lastSeenMsgId(bufferId);
@@ -94,18 +111,17 @@ void GlobalUnreadBacklogRequester::requestBacklog() {
 //  PER BUFFER UNREAD BACKLOG REQUESTER
 // ========================================
 PerBufferUnreadBacklogRequester::PerBufferUnreadBacklogRequester(ClientBacklogManager *backlogManager)
-  : BacklogRequester(true, backlogManager)
+  : BacklogRequester(true, BacklogRequester::PerBufferUnread, backlogManager)
 {
   BacklogSettings backlogSettings;
   _limit = backlogSettings.perBufferUnreadBacklogLimit();
   _additional = backlogSettings.perBufferUnreadBacklogAdditional();
 }
 
-void PerBufferUnreadBacklogRequester::requestBacklog() {
-  QList<BufferId> allBuffers = allBufferIds();
-  setWaitingBuffers(allBuffers);
-  backlogManager->emitMessagesRequested(QObject::tr("Requesting a total of up to %1 unread backlog messages for %2 buffers").arg((_limit + _additional) * allBuffers.count()).arg(allBuffers.count()));
-  foreach(BufferId bufferId, allBuffers) {
+void PerBufferUnreadBacklogRequester::requestBacklog(const BufferIdList &bufferIds) {
+  setWaitingBuffers(bufferIds);
+  backlogManager->emitMessagesRequested(QObject::tr("Requesting a total of up to %1 unread backlog messages for %2 buffers").arg((_limit + _additional) * bufferIds.count()).arg(bufferIds.count()));
+  foreach(BufferId bufferId, bufferIds) {
     backlogManager->requestBacklog(bufferId, Client::networkModel()->lastSeenMsgId(bufferId), -1, _limit, _additional);
   }
 }

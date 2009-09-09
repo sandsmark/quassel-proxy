@@ -42,12 +42,17 @@ class AbstractUiMsg;
 class NetworkModel;
 class BufferModel;
 class BufferSyncer;
+class BufferViewOverlay;
+class ClientAliasManager;
 class ClientBacklogManager;
+class ClientBufferViewManager;
+class ClientIgnoreListManager;
 class ClientIrcListHelper;
 class ClientSyncer;
-class ClientBufferViewManager;
+class ClientUserInputHandler;
 class IrcUser;
 class IrcChannel;
+class NetworkConfig;
 class SignalProxy;
 struct NetworkInfo;
 
@@ -60,6 +65,7 @@ public:
     RemoteCore
   };
 
+  static bool instanceExists();
   static Client *instance();
   static void destroy();
   static void init(AbstractUi *);
@@ -100,9 +106,14 @@ public:
   static inline AbstractMessageProcessor *messageProcessor() { return instance()->_messageProcessor; }
   static inline SignalProxy *signalProxy() { return instance()->_signalProxy; }
 
+  static inline ClientAliasManager *aliasManager() { return instance()->_aliasManager; }
   static inline ClientBacklogManager *backlogManager() { return instance()->_backlogManager; }
   static inline ClientIrcListHelper *ircListHelper() { return instance()->_ircListHelper; }
   static inline ClientBufferViewManager *bufferViewManager() { return instance()->_bufferViewManager; }
+  static inline BufferViewOverlay *bufferViewOverlay() { return instance()->_bufferViewOverlay; }
+  static inline ClientUserInputHandler *inputHandler() { return instance()->_inputHandler; }
+  static inline NetworkConfig *networkConfig() { return instance()->_networkConfig; }
+  static inline ClientIgnoreListManager *ignoreListManager() { return instance()->_ignoreListManager; }
 
   static AccountId currentCoreAccount();
 
@@ -110,7 +121,7 @@ public:
   static bool isSynced();
   static inline bool internalCore() { return instance()->_internalCore; }
 
-  static void userInput(BufferInfo bufferInfo, QString message);
+  static void userInput(const BufferInfo &bufferInfo, const QString &message);
 
   static void setBufferLastSeenMsg(BufferId id, const MsgId &msgId); // this is synced to core and other clients
   static void removeBuffer(BufferId id);
@@ -124,7 +135,6 @@ public:
   static inline void registerClientSyncer(ClientSyncer *syncer) { emit instance()->newClientSyncer(syncer); }
 
 signals:
-  void sendInput(BufferInfo, QString message);
   void requestNetworkStates();
 
   void showConfigWizard(const QVariantMap &coredata);
@@ -162,8 +172,6 @@ signals:
   void logUpdated(const QString &msg);
 
 public slots:
-  //void selectBuffer(Buffer *);
-
   void disconnectFromCore();
 
   void bufferRemoved(BufferId bufferId);
@@ -187,6 +195,8 @@ private slots:
   void requestInitialBacklog();
   void createDefaultBufferView();
 
+  void sendBufferedUserInput();
+
 private:
   Client(QObject *parent = 0);
   virtual ~Client();
@@ -203,9 +213,14 @@ private:
   NetworkModel * _networkModel;
   BufferModel * _bufferModel;
   BufferSyncer * _bufferSyncer;
+  ClientAliasManager *_aliasManager;
   ClientBacklogManager *_backlogManager;
   ClientBufferViewManager *_bufferViewManager;
+  BufferViewOverlay *_bufferViewOverlay;
   ClientIrcListHelper *_ircListHelper;
+  ClientUserInputHandler *_inputHandler;
+  NetworkConfig *_networkConfig;
+  ClientIgnoreListManager *_ignoreListManager;
 
   MessageModel *_messageModel;
   AbstractMessageProcessor *_messageProcessor;
@@ -222,6 +237,8 @@ private:
 
   QString _debugLogBuffer;
   QTextStream _debugLog;
+
+  QList<QPair<BufferInfo, QString> > _userInputBuffer;
 
   friend class ClientSyncer;
 };

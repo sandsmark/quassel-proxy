@@ -25,8 +25,6 @@
 #include <QSpinBox>
 #include <QVariant>
 
-#include <QDebug>
-
 #include "uisettings.h"
 
 SettingsPage::SettingsPage(const QString &category, const QString &title, QWidget *parent)
@@ -80,15 +78,14 @@ bool SettingsPage::hasChanged(QSpinBox *box) {
 void SettingsPage::initAutoWidgets() {
   _autoWidgets.clear();
 
-  if(settingsKey().isNull())
-    return;
-
   // find all descendants that should be considered auto widgets
   // we need to climb the QObject tree recursively
   findAutoWidgets(this, &_autoWidgets);
 
   foreach(QObject *widget, _autoWidgets) {
-    if(widget->inherits("QAbstractButton"))
+    if(widget->inherits("ColorButton"))
+      connect(widget, SIGNAL(colorChanged(QColor)), SLOT(autoWidgetHasChanged()));
+    else if(widget->inherits("QAbstractButton") || widget->inherits("QGroupBox"))
       connect(widget, SIGNAL(toggled(bool)), SLOT(autoWidgetHasChanged()));
     else if(widget->inherits("QLineEdit") || widget->inherits("QTextEdit"))
       connect(widget, SIGNAL(textChanged(const QString &)), SLOT(autoWidgetHasChanged()));
@@ -96,6 +93,8 @@ void SettingsPage::initAutoWidgets() {
       connect(widget, SIGNAL(currentIndexChanged(int)), SLOT(autoWidgetHasChanged()));
     else if(widget->inherits("QSpinBox"))
       connect(widget, SIGNAL(valueChanged(int)), SLOT(autoWidgetHasChanged()));
+    else if(widget->inherits("FontSelector"))
+      connect(widget, SIGNAL(fontChanged(QFont)), SLOT(autoWidgetHasChanged()));
     else
       qWarning() << "SettingsPage::init(): Unknown autoWidget type" << widget->metaObject()->className();
   }
@@ -103,7 +102,7 @@ void SettingsPage::initAutoWidgets() {
 
 void SettingsPage::findAutoWidgets(QObject *parent, QObjectList *autoList) const {
   foreach(QObject *child, parent->children()) {
-    if(!child->property("settingsKey").toString().isEmpty())
+    if(child->property("settingsKey").isValid())
       autoList->append(child);
     findAutoWidgets(child, autoList);
   }
@@ -111,7 +110,9 @@ void SettingsPage::findAutoWidgets(QObject *parent, QObjectList *autoList) const
 
 QByteArray SettingsPage::autoWidgetPropertyName(QObject *widget) const {
   QByteArray prop;
-  if(widget->inherits("QAbstractButton"))
+  if(widget->inherits("ColorButton"))
+    prop = "color";
+  else if(widget->inherits("QAbstractButton") || widget->inherits("QGroupBox"))
     prop = "checked";
   else if(widget->inherits("QLineEdit") || widget->inherits("QTextEdit"))
     prop = "text";
@@ -119,6 +120,8 @@ QByteArray SettingsPage::autoWidgetPropertyName(QObject *widget) const {
     prop = "currentIndex";
   else if(widget->inherits("QSpinBox"))
     prop = "value";
+  else if(widget->inherits("FontSelector"))
+    prop = "selectedFont";
   else
     qWarning() << "SettingsPage::autoWidgetPropertyName(): Unhandled widget type for" << widget;
 
@@ -127,6 +130,8 @@ QByteArray SettingsPage::autoWidgetPropertyName(QObject *widget) const {
 
 QString SettingsPage::autoWidgetSettingsKey(QObject *widget) const {
   QString key = widget->property("settingsKey").toString();
+  if(key.isEmpty())
+    return QString("");
   if(key.startsWith('/'))
     key.remove(0, 1);
   else
@@ -158,7 +163,14 @@ void SettingsPage::autoWidgetHasChanged() {
 void SettingsPage::load() {
   UiSettings s("");
   foreach(QObject *widget, _autoWidgets) {
-    QVariant val = s.value(autoWidgetSettingsKey(widget), widget->property("defaultValue"));
+    QString key = autoWidgetSettingsKey(widget);
+    QVariant val;
+    if(key.isEmpty())
+      val = loadAutoWidgetValue(widget->objectName());
+    else
+      val = s.value(key, QVariant());
+    if(!val.isValid())
+      val = widget->property("defaultValue");
     widget->setProperty(autoWidgetPropertyName(widget), val);
     widget->setProperty("storedValue", val);
   }
@@ -171,9 +183,13 @@ void SettingsPage::load() {
 void SettingsPage::save() {
   UiSettings s("");
   foreach(QObject *widget, _autoWidgets) {
+    QString key = autoWidgetSettingsKey(widget);
     QVariant val = widget->property(autoWidgetPropertyName(widget));
     widget->setProperty("storedValue", val);
-    s.setValue(autoWidgetSettingsKey(widget), val);
+    if(key.isEmpty())
+      saveAutoWidgetValue(widget->objectName(), val);
+    else
+      s.setValue(key, val);
   }
   bool old = hasChanged();
   _autoWidgetsChanged = _changed = false;
@@ -188,3 +204,13 @@ void SettingsPage::defaults() {
   }
   autoWidgetHasChanged();
 }
+
+QVariant SettingsPage::loadAutoWidgetValue(const QString &widgetName) {
+  qWarning() << "Could not load value for SettingsPage widget" << widgetName;
+  return QVariant();
+}
+
+void SettingsPage::saveAutoWidgetValue(const QString &widgetName, const QVariant &) {
+  qWarning() << "Could not save value for SettingsPage widget" << widgetName;
+}
+

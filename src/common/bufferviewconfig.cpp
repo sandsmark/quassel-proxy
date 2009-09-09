@@ -22,6 +22,7 @@
 
 #include "bufferinfo.h"
 
+INIT_SYNCABLE_OBJECT(BufferViewConfig)
 BufferViewConfig::BufferViewConfig(int bufferViewId, QObject *parent)
   : SyncableObject(parent),
     _bufferViewId(bufferViewId),
@@ -48,6 +49,7 @@ void BufferViewConfig::setBufferViewName(const QString &bufferViewName) {
     return;
 
   _bufferViewName = bufferViewName;
+  SYNC(ARG(bufferViewName))
   emit bufferViewNameSet(bufferViewName);
 }
 
@@ -56,7 +58,9 @@ void BufferViewConfig::setNetworkId(const NetworkId &networkId) {
     return;
 
   _networkId = networkId;
+  SYNC(ARG(networkId))
   emit networkIdSet(networkId);
+  emit configChanged();
 }
 
 void BufferViewConfig::setAddNewBuffersAutomatically(bool addNewBuffersAutomatically) {
@@ -64,7 +68,8 @@ void BufferViewConfig::setAddNewBuffersAutomatically(bool addNewBuffersAutomatic
     return;
 
   _addNewBuffersAutomatically = addNewBuffersAutomatically;
-  emit addNewBuffersAutomaticallySet(addNewBuffersAutomatically);
+  SYNC(ARG(addNewBuffersAutomatically))
+  emit configChanged();
 }
 
 void BufferViewConfig::setSortAlphabetically(bool sortAlphabetically) {
@@ -72,7 +77,8 @@ void BufferViewConfig::setSortAlphabetically(bool sortAlphabetically) {
     return;
 
   _sortAlphabetically = sortAlphabetically;
-  emit sortAlphabeticallySet(sortAlphabetically);
+  SYNC(ARG(sortAlphabetically))
+  emit configChanged();
 }
 
 void BufferViewConfig::setDisableDecoration(bool disableDecoration) {
@@ -80,7 +86,7 @@ void BufferViewConfig::setDisableDecoration(bool disableDecoration) {
     return;
 
   _disableDecoration = disableDecoration;
-  emit disableDecorationSet(disableDecoration);
+  SYNC(ARG(disableDecoration))
 }
 
 void BufferViewConfig::setAllowedBufferTypes(int bufferTypes) {
@@ -88,7 +94,8 @@ void BufferViewConfig::setAllowedBufferTypes(int bufferTypes) {
     return;
 
   _allowedBufferTypes = bufferTypes;
-  emit allowedBufferTypesSet(bufferTypes);
+  SYNC(ARG(bufferTypes))
+  emit configChanged();
 }
 
 void BufferViewConfig::setMinimumActivity(int activity) {
@@ -96,7 +103,8 @@ void BufferViewConfig::setMinimumActivity(int activity) {
     return;
 
   _minimumActivity = activity;
-  emit minimumActivitySet(activity);
+  SYNC(ARG(activity))
+  emit configChanged();
 }
 
 void BufferViewConfig::setHideInactiveBuffers(bool hideInactiveBuffers) {
@@ -104,7 +112,8 @@ void BufferViewConfig::setHideInactiveBuffers(bool hideInactiveBuffers) {
     return;
 
   _hideInactiveBuffers = hideInactiveBuffers;
-  emit hideInactiveBuffersSet(hideInactiveBuffers);
+  SYNC(ARG(hideInactiveBuffers))
+  emit configChanged();
 }
 
 QVariantList BufferViewConfig::initBufferList() const {
@@ -124,8 +133,7 @@ void BufferViewConfig::initSetBufferList(const QVariantList &buffers) {
     _buffers << buffer.value<BufferId>();
   }
 
-  // normaly initSeters don't need an emit. this one is to track changes in the settingspage
-  emit bufferListSet();
+  emit configChanged(); // used to track changes in the settingspage
 }
 
 void BufferViewConfig::initSetBufferList(const QList<BufferId> &buffers) {
@@ -135,8 +143,7 @@ void BufferViewConfig::initSetBufferList(const QList<BufferId> &buffers) {
     _buffers << bufferId;
   }
 
-  // normaly initSeters don't need an emit. this one is to track changes in the settingspage
-  emit bufferListSet();
+  emit configChanged(); // used to track changes in the settingspage
 }
 
 QVariantList BufferViewConfig::initRemovedBuffers() const {
@@ -191,7 +198,9 @@ void BufferViewConfig::addBuffer(const BufferId &bufferId, int pos) {
     _temporarilyRemovedBuffers.remove(bufferId);
 
   _buffers.insert(pos, bufferId);
+  SYNC(ARG(bufferId), ARG(pos))
   emit bufferAdded(bufferId, pos);
+  emit configChanged();
 }
 
 void BufferViewConfig::moveBuffer(const BufferId &bufferId, int pos) {
@@ -204,7 +213,9 @@ void BufferViewConfig::moveBuffer(const BufferId &bufferId, int pos) {
     pos = _buffers.count() - 1;
 
   _buffers.move(_buffers.indexOf(bufferId), pos);
+  SYNC(ARG(bufferId), ARG(pos))
   emit bufferMoved(bufferId, pos);
+  emit configChanged();
 }
 
 void BufferViewConfig::removeBuffer(const BufferId &bufferId) {
@@ -215,8 +226,9 @@ void BufferViewConfig::removeBuffer(const BufferId &bufferId) {
     _removedBuffers.remove(bufferId);
 
   _temporarilyRemovedBuffers << bufferId;
-
+  SYNC(ARG(bufferId))
   emit bufferRemoved(bufferId);
+  emit configChanged();
 }
 
 void BufferViewConfig::removeBufferPermanently(const BufferId &bufferId) {
@@ -228,5 +240,7 @@ void BufferViewConfig::removeBufferPermanently(const BufferId &bufferId) {
 
   _removedBuffers << bufferId;
 
+  SYNC(ARG(bufferId))
   emit bufferPermanentlyRemoved(bufferId);
+  emit configChanged();
 }

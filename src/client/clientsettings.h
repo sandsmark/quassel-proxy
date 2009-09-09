@@ -121,4 +121,42 @@ public:
 #endif
 };
 
+// ========================================
+// TabCompletionSettings
+// ========================================
+
+class TabCompletionSettings : public ClientSettings {
+public:
+  enum SortMode {
+    Alphabetical,
+    LastActivity
+  };
+
+  TabCompletionSettings();
+
+  void setCompletionSuffix(const QString &);
+  QString completionSuffix();
+
+  void setSortMode(SortMode);
+  SortMode sortMode();
+
+  void setCaseSensitivity(Qt::CaseSensitivity);
+  Qt::CaseSensitivity caseSensitivity();
+
+  void setUseLastSpokenTo(bool);
+  bool useLastSpokenTo();
+
+};
+
+// ========================================
+// ItemViewSettings
+// ========================================
+class ItemViewSettings : public ClientSettings {
+  public:
+    ItemViewSettings(const QString& group = "ItemViews");
+
+    bool displayTopicInTooltip();
+    bool mouseWheelChangesBuffer();
+};
+
 #endif

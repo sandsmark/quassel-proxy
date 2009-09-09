@@ -219,7 +219,7 @@ int MessageModel::insertMessagesGracefully(const QList<Message> &msglist) {
     while(iter != msglist.constBegin()) {
       iter--;
 
-      if(!fastForward && (*iter).msgId() < minId)
+      if(!fastForward && (*iter).msgId() <= minId)
 	break;
       processedMsgs++;
 
@@ -250,7 +250,7 @@ int MessageModel::insertMessagesGracefully(const QList<Message> &msglist) {
     }
   } else {
     while(iter != msglist.constEnd()) {
-      if(!fastForward && (*iter).msgId() < minId)
+      if(!fastForward && (*iter).msgId() <= minId)
 	break;
       processedMsgs++;
 
@@ -348,6 +348,18 @@ void MessageModel::changeOfDay() {
   _nextDayChange = _nextDayChange.addSecs(86400);
 }
 
+void MessageModel::insertErrorMessage(BufferInfo bufferInfo, const QString &errorString) {
+  int idx = messageCount();
+  beginInsertRows(QModelIndex(), idx, idx);
+  Message msg(bufferInfo, Message::Error, errorString);
+  if(!messagesIsEmpty())
+    msg.setMsgId(messageItemAt(idx-1)->msgId());
+  else
+    msg.setMsgId(0);
+  insertMessage__(idx, msg);
+  endInsertRows();
+}
+
 void MessageModel::requestBacklog(BufferId bufferId) {
   if(_messagesWaiting.contains(bufferId))
     return;
@@ -395,13 +407,14 @@ QVariant MessageModelItem::data(int column, int role) const {
     return QVariant();
 
   switch(role) {
-  case MessageModel::MsgIdRole: return QVariant::fromValue<MsgId>(msgId());
-  case MessageModel::BufferIdRole: return QVariant::fromValue<BufferId>(bufferId());
-  case MessageModel::TypeRole: return msgType();
-  case MessageModel::FlagsRole: return (int)msgFlags();
-  case MessageModel::TimestampRole: return timestamp();
-  case MessageModel::RedirectedToRole: return qVariantFromValue<BufferId>(_redirectedTo);
-  default: return QVariant();
+    case MessageModel::MessageRole: return QVariant::fromValue<Message>(message());
+    case MessageModel::MsgIdRole: return QVariant::fromValue<MsgId>(msgId());
+    case MessageModel::BufferIdRole: return QVariant::fromValue<BufferId>(bufferId());
+    case MessageModel::TypeRole: return msgType();
+    case MessageModel::FlagsRole: return (int)msgFlags();
+    case MessageModel::TimestampRole: return timestamp();
+    case MessageModel::RedirectedToRole: return qVariantFromValue<BufferId>(_redirectedTo);
+    default: return QVariant();
   }
 }
 

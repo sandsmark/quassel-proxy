@@ -27,6 +27,7 @@
 
 #include "chatlinemodel.h"
 #include "chatscene.h"
+#include "clickable.h"
 #include "uistyle.h"
 #include "qtui.h"
 
@@ -48,10 +49,11 @@ public:
 
   void initLayoutHelper(QTextLayout *layout, QTextOption::WrapMode, Qt::Alignment = Qt::AlignLeft) const;
   virtual inline void initLayout(QTextLayout *layout) const {
-    initLayoutHelper(layout, QTextOption::WrapAnywhere);
+    initLayoutHelper(layout, QTextOption::NoWrap);
     doLayout(layout);
   }
   virtual void doLayout(QTextLayout *) const;
+  virtual UiStyle::FormatList formatList() const;
 
   virtual void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0);
   enum { Type = ChatScene::ChatItemType };
@@ -83,8 +85,10 @@ protected:
   virtual void mousePressEvent(QGraphicsSceneMouseEvent *event);
   virtual void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
 
-  virtual QTextLayout::FormatRange selectionFormat() const;
-  virtual inline QVector<QTextLayout::FormatRange> additionalFormats() const { return QVector<QTextLayout::FormatRange>(); }
+  void paintBackground(QPainter *);
+  QVector<QTextLayout::FormatRange> selectionFormats() const;
+  virtual QVector<QTextLayout::FormatRange> additionalFormats() const;
+  void overlayFormat(UiStyle::FormatList &fmtList, int start, int end, quint32 overlayFmt) const;
 
   inline qint16 selectionStart() const { return _selectionStart; }
   inline void setSelectionStart(qint16 start) { _selectionStart = start; }
@@ -171,7 +175,7 @@ public:
   virtual inline int type() const { return Type; }
 
   inline ChatLineModel::ColumnType column() const { return ChatLineModel::ContentsColumn; }
-  inline QFontMetricsF *fontMetrics() const { return _fontMetrics; }
+  QFontMetricsF *fontMetrics() const;
 
 protected:
   virtual void mouseMoveEvent(QGraphicsSceneMouseEvent *event);
@@ -189,16 +193,15 @@ protected:
     doLayout(layout);
   }
   virtual void doLayout(QTextLayout *layout) const;
+  virtual UiStyle::FormatList formatList() const;
 
 private:
-  struct Clickable;
   class ActionProxy;
   class WrapColumnFinder;
 
   ContentsChatItemPrivate *_data;
   ContentsChatItemPrivate *privateData() const;
 
-  QList<Clickable> findClickables() const;
   Clickable clickableAt(const QPointF &pos) const;
 
   void endHoverMode();
@@ -215,31 +218,13 @@ private:
   static ActionProxy _actionProxy;
 };
 
-struct ContentsChatItem::Clickable {
-  // Don't change these enums without also changing the regexps in analyze()!
-  enum Type {
-    Invalid = -1,
-    Url = 0,
-    Channel = 1,
-    Nick = 2
-  };
-
-  Type type;
-  quint16 start;
-  quint16 length;
-
-  inline Clickable() : type(Invalid) {};
-  inline Clickable(Type type_, quint16 start_, quint16 length_) : type(type_), start(start_), length(length_) {};
-  inline bool isValid() const { return type != Invalid; }
-};
-
 struct ContentsChatItemPrivate {
   ContentsChatItem *contentsItem;
-  QList<ContentsChatItem::Clickable> clickables;
-  ContentsChatItem::Clickable currentClickable;
-  ContentsChatItem::Clickable activeClickable;
+  ClickableList clickables;
+  Clickable currentClickable;
+  Clickable activeClickable;
 
-  ContentsChatItemPrivate(const QList<ContentsChatItem::Clickable> &c, ContentsChatItem *parent) : contentsItem(parent), clickables(c) {}
+  ContentsChatItemPrivate(const ClickableList &c, ContentsChatItem *parent) : contentsItem(parent), clickables(c) {}
 };
 
 class ContentsChatItem::WrapColumnFinder {
@@ -247,7 +232,7 @@ public:
   WrapColumnFinder(const ChatItem *parent);
   ~WrapColumnFinder();
 
-  qint16 nextWrapColumn();
+  qint16 nextWrapColumn(qreal width);
 
 private:
   const ChatItem *item;

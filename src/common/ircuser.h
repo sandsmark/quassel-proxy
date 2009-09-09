@@ -28,12 +28,14 @@
 #include <QDateTime>
 
 #include "syncableobject.h"
+#include "types.h"
 
 class SignalProxy;
 class Network;
 class IrcChannel;
 
 class IrcUser : public SyncableObject {
+  SYNCABLE_OBJECT
   Q_OBJECT
 
   Q_PROPERTY(QString user READ user WRITE setUser STORED false)
@@ -88,6 +90,12 @@ public:
   QString decodeString(const QByteArray &text) const;
   QByteArray encodeString(const QString &string) const;
 
+  // only valid on client side, these are not synced!
+  inline QDateTime lastChannelActivity(BufferId id) const { return _lastActivity.value(id); }
+  void setLastChannelActivity(BufferId id, const QDateTime &time);
+  inline QDateTime lastSpokenTo(BufferId id) const { return _lastSpokenTo.value(id); }
+  void setLastSpokenTo(BufferId id, const QDateTime &time);
+
 public slots:
   void setUser(const QString &user);
   void setHost(const QString &host);
@@ -116,29 +124,30 @@ public slots:
   void removeUserModes(const QString &modes);
 
 signals:
-  void userSet(QString user);
-  void hostSet(QString host);
-  void nickSet(QString newnick);
-  void realNameSet(QString realName);
-  void awaySet(bool away);
-  void awayMessageSet(QString awayMessage);
-  void idleTimeSet(QDateTime idleTime);
-  void loginTimeSet(QDateTime loginTime);
-  void serverSet(QString server);
-  void ircOperatorSet(QString ircOperator);
-  void lastAwayMessageSet(int lastAwayMessage);
-  void whoisServiceReplySet(QString whoisServiceReply);
-  void suserHostSet(QString suserHost);
-  void hostmaskUpdated(QString mask);
+//   void userSet(QString user);
+//   void hostSet(QString host);
+  void nickSet(QString newnick); // needed in NetworkModel
+//   void realNameSet(QString realName);
+  void awaySet(bool away); // needed in NetworkModel
+//   void awayMessageSet(QString awayMessage);
+//   void idleTimeSet(QDateTime idleTime);
+//   void loginTimeSet(QDateTime loginTime);
+//   void serverSet(QString server);
+//   void ircOperatorSet(QString ircOperator);
+//   void lastAwayMessageSet(int lastAwayMessage);
+//   void whoisServiceReplySet(QString whoisServiceReply);
+//   void suserHostSet(QString suserHost);
 
   void userModesSet(QString modes);
+  void userModesAdded(QString modes);
+  void userModesRemoved(QString modes);
 
   // void channelJoined(QString channel);
   void channelParted(QString channel);
   void quited();
 
-  void userModesAdded(QString modes);
-  void userModesRemoved(QString modes);
+  void lastChannelActivityUpdated(BufferId id, const QDateTime &newTime);
+  void lastSpokenToUpdated(BufferId id, const QDateTime &newTime);
 
 private slots:
   void updateObjectName();
@@ -178,6 +187,9 @@ private:
 
   QTextCodec *_codecForEncoding;
   QTextCodec *_codecForDecoding;
+
+  QHash<BufferId, QDateTime> _lastActivity;
+  QHash<BufferId, QDateTime> _lastSpokenTo;
 };
 
 #endif

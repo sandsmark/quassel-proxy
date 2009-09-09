@@ -33,7 +33,7 @@
 #include "util.h"
 
 BufferViewSettingsPage::BufferViewSettingsPage(QWidget *parent)
-  : SettingsPage(tr("Appearance"), tr("Buffer Views"), parent),
+  : SettingsPage(tr("Misc"), tr("Custom Chat Lists"), parent),
     _ignoreWidgetChanges(false),
     _useBufferViewHint(false),
     _bufferViewHint(0)
@@ -339,8 +339,8 @@ void BufferViewSettingsPage::on_deleteBufferView_clicked() {
   QListWidgetItem *currentItem = ui.bufferViewList->item(ui.bufferViewList->currentRow());
   QString viewName = currentItem->text();
   int viewId = bufferView(ui.bufferViewList->currentRow())->bufferViewId();
-  int ret = QMessageBox::question(this, tr("Delete Buffer View?"),
-                                    tr("Do you really want to delete the buffer view \"%1\"?").arg(viewName),
+  int ret = QMessageBox::question(this, tr("Delete Chat List?"),
+                                    tr("Do you really want to delete the chat list \"%1\"?").arg(viewName),
                                     QMessageBox::Yes|QMessageBox::No, QMessageBox::No);
 
   if(ret == QMessageBox::Yes) {
@@ -487,9 +487,9 @@ BufferViewConfig *BufferViewSettingsPage::cloneConfig(BufferViewConfig *config) 
   connect(config, SIGNAL(bufferAdded(const BufferId &, int)), changedConfig, SLOT(addBuffer(const BufferId &, int)));
   connect(config, SIGNAL(bufferMoved(const BufferId &, int)), changedConfig, SLOT(moveBuffer(const BufferId &, int)));
   connect(config, SIGNAL(bufferRemoved(const BufferId &)), changedConfig, SLOT(removeBuffer(const BufferId &)));
-  connect(config, SIGNAL(addBufferRequested(const BufferId &, int)), changedConfig, SLOT(addBuffer(const BufferId &, int)));
-  connect(config, SIGNAL(moveBufferRequested(const BufferId &, int)), changedConfig, SLOT(moveBuffer(const BufferId &, int)));
-  connect(config, SIGNAL(removeBufferRequested(const BufferId &)), changedConfig, SLOT(removeBuffer(const BufferId &)));
+//   connect(config, SIGNAL(addBufferRequested(const BufferId &, int)), changedConfig, SLOT(addBuffer(const BufferId &, int)));
+//   connect(config, SIGNAL(moveBufferRequested(const BufferId &, int)), changedConfig, SLOT(moveBuffer(const BufferId &, int)));
+//   connect(config, SIGNAL(removeBufferRequested(const BufferId &)), changedConfig, SLOT(removeBuffer(const BufferId &)));
 
   changedConfig->setProperty("OriginalBufferList", toVariantList<BufferId>(config->bufferList()));
   // if this is the currently displayed view we have to change the config of the preview filter
@@ -517,7 +517,7 @@ BufferViewEditDlg::BufferViewEditDlg(const QString &old, const QStringList &exis
 
   if(old.isEmpty()) {
     // new buffer
-    setWindowTitle(tr("Add Buffer View"));
+    setWindowTitle(tr("Add Chat List"));
     on_bufferViewEdit_textChanged(""); // disable ok button
   } else {
     ui.bufferViewEdit->setText(old);

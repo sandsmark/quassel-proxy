@@ -29,7 +29,7 @@
 #include "identity.h"
 #include "network.h"
 
-class InputLine;
+class MultiLineEdit;
 
 class InputWidget : public AbstractItemView {
   Q_OBJECT
@@ -40,7 +40,10 @@ public:
 
   const Network *currentNetwork() const;
 
-  inline  InputLine* inputLine() const { return ui.inputEdit; }
+  inline MultiLineEdit* inputLine() const { return ui.inputEdit; }
+
+protected:
+  virtual bool eventFilter(QObject *watched, QEvent *event);
 
 protected slots:
   virtual void currentChanged(const QModelIndex &current, const QModelIndex &previous);
@@ -49,7 +52,13 @@ protected slots:
 
 private slots:
   void setCustomFont(const QVariant &font);
-  void sendText(QString text);
+  void setEnableSpellCheck(const QVariant &);
+  void setShowNickSelector(const QVariant &);
+  void setMaxLines(const QVariant &);
+  void setMultiLineEnabled(const QVariant &);
+  void setScrollBarsEnabled(const QVariant &);
+
+  void sendText(const QString &text) const;
   void changeNick(const QString &newNick) const;
 
   void setNetwork(NetworkId networkId);
@@ -60,12 +69,9 @@ private slots:
 
   BufferInfo currentBufferInfo() const;
 
-signals:
-  void userInput(BufferInfo, QString msg) const;
-
 private:
   Ui::InputWidget ui;
-  
+
   NetworkId _networkId;
   IdentityId _identityId;
 };

@@ -20,6 +20,8 @@
 
 #include <QDebug>
 #include <QAbstractButton>
+#include <QFormLayout>
+#include <QSpinBox>
 
 #include "coreconfigwizard.h"
 #include "iconloader.h"
@@ -30,7 +32,7 @@ CoreConfigWizard::CoreConfigWizard(const QList<QVariant> &backends, QWidget *par
   setPage(AdminUserPage, new CoreConfigWizardPages::AdminUserPage(this));
   setPage(StorageSelectionPage, new CoreConfigWizardPages::StorageSelectionPage(_backends, this));
   syncPage = new CoreConfigWizardPages::SyncPage(this);
-  connect(syncPage, SIGNAL(setupCore(const QString &)), this, SLOT(prepareCoreSetup(const QString &)));
+  connect(syncPage, SIGNAL(setupCore(const QString &, const QVariantMap &)), this, SLOT(prepareCoreSetup(const QString &, const QVariantMap &)));
   setPage(SyncPage, syncPage);
   syncRelayPage = new CoreConfigWizardPages::SyncRelayPage(this);
   connect(syncRelayPage, SIGNAL(startOver()), this, SLOT(startOver()));
@@ -63,13 +65,16 @@ QHash<QString, QVariant> CoreConfigWizard::backends() const {
   return _backends;
 }
 
-void CoreConfigWizard::prepareCoreSetup(const QString &backend) {
+void CoreConfigWizard::prepareCoreSetup(const QString &backend, const QVariantMap &properties) {
   // Prevent the user from changing any settings he already specified...
-  foreach(int idx, visitedPages()) page(idx)->setEnabled(false);
+  foreach(int idx, visitedPages())
+    page(idx)->setEnabled(false);
+
   QVariantMap foo;
   foo["AdminUser"] = field("adminUser.user").toString();
   foo["AdminPasswd"] = field("adminUser.password").toString();
   foo["Backend"] = backend;
+  foo["ConnectionProperties"] = properties;
   emit setupCore(foo);
 }
 
@@ -91,7 +96,6 @@ void CoreConfigWizard::coreSetupFailed(const QString &error) {
   //foreach(int idx, visitedPages()) page(idx)->setEnabled(true);
   //setStartId(SyncPage);
   //restart();
-
 }
 
 void CoreConfigWizard::startOver() {
@@ -158,9 +162,12 @@ bool AdminUserPage::isComplete() const {
 
 /*** Storage Selection Page ***/
 
-StorageSelectionPage::StorageSelectionPage(const QHash<QString, QVariant> &backends, QWidget *parent) : QWizardPage(parent) {
+StorageSelectionPage::StorageSelectionPage(const QHash<QString, QVariant> &backends, QWidget *parent)
+  : QWizardPage(parent),
+    _connectionBox(0),
+    _backends(backends)
+{
   ui.setupUi(this);
-  _backends = backends;
 
   setTitle(tr("Select Storage Backend"));
   setSubTitle(tr("Please select a database backend for the Quassel Core storage to store the backlog and other data in."));
@@ -183,9 +190,114 @@ QString StorageSelectionPage::selectedBackend() const {
   return ui.backendList->currentText();
 }
 
+QVariantMap StorageSelectionPage::connectionProperties() const {
+  QString backend = ui.backendList->itemData(ui.backendList->currentIndex()).toString();
+
+  QVariantMap properties;
+  QStringList setupKeys = _backends[backend].toMap()["SetupKeys"].toStringList();
+  if(!setupKeys.isEmpty()) {
+    QVariantMap defaults = _backends[backend].toMap()["SetupDefaults"].toMap();
+    foreach(QString key, setupKeys) {
+      QWidget *widget = _connectionBox->findChild<QWidget *>(key);
+      QVariant def;
+      if(defaults.contains(key)) {
+	def = defaults[key];
+      }
+      switch(def.type()) {
+      case QVariant::Int:
+	{
+	  QSpinBox *spinbox = qobject_cast<QSpinBox *>(widget);
+	  Q_ASSERT(spinbox);
+	  def = QVariant(spinbox->value());
+	}
+	break;
+      default:
+	{
+	  QLineEdit *lineEdit = qobject_cast<QLineEdit *>(widget);
+	  Q_ASSERT(lineEdit);
+	  def = QVariant(lineEdit->text());
+	}
+      }
+      properties[key] = def;
+    }
+  }
+  qDebug() << properties;
+
+
+//   QVariantMap properties = _backends[backend].toMap()["ConnectionProperties"].toMap();
+//   if(!properties.isEmpty() && _connectionBox) {
+//     QVariantMap::iterator propertyIter = properties.begin();
+//     while(propertyIter != properties.constEnd()) {
+//       QWidget *widget = _connectionBox->findChild<QWidget *>(propertyIter.key());
+//       switch(propertyIter.value().type()) {
+//       case QVariant::Int:
+// 	{
+// 	  QSpinBox *spinbox = qobject_cast<QSpinBox *>(widget);
+// 	  Q_ASSERT(spinbox);
+// 	  propertyIter.value() = QVariant(spinbox->value());
+// 	}
+// 	break;
+//       default:
+// 	{
+// 	  QLineEdit *lineEdit = qobject_cast<QLineEdit *>(widget);
+// 	  Q_ASSERT(lineEdit);
+// 	  propertyIter.value() = QVariant(lineEdit->text());
+// 	}
+//       }
+//       propertyIter++;
+//     }
+//   }
+  return properties;
+}
+
 void StorageSelectionPage::on_backendList_currentIndexChanged() {
   QString backend = ui.backendList->itemData(ui.backendList->currentIndex()).toString();
   ui.description->setText(_backends[backend].toMap()["Description"].toString());
+
+  if(_connectionBox) {
+    layout()->removeWidget(_connectionBox);
+    _connectionBox->deleteLater();
+    _connectionBox = 0;
+  }
+
+  QStringList setupKeys = _backends[backend].toMap()["SetupKeys"].toStringList();
+  if(!setupKeys.isEmpty()) {
+    QVariantMap defaults = _backends[backend].toMap()["SetupDefaults"].toMap();
+    QGroupBox *propertyBox = new QGroupBox(this);
+    propertyBox->setTitle(tr("Connection Properties"));
+    QFormLayout *formlayout = new QFormLayout;
+
+    foreach(QString key, setupKeys) {
+      QWidget *widget = 0;
+      QVariant def;
+      if(defaults.contains(key)) {
+	def = defaults[key];
+      }
+      switch(def.type()) {
+      case QVariant::Int:
+	{
+	  QSpinBox *spinbox = new QSpinBox(propertyBox);
+	  spinbox->setMaximum(64000);
+	  spinbox->setValue(def.toInt());
+	  widget = spinbox;
+	}
+	break;
+      default:
+	{
+	  QLineEdit *lineEdit = new QLineEdit(def.toString(), propertyBox);
+	  if(key.toLower().contains("password")) {
+	    lineEdit->setEchoMode(QLineEdit::Password);
+	  }
+	  widget = lineEdit;
+	}
+      }
+      widget->setObjectName(key);
+      formlayout->addRow(key + ":", widget);
+    }
+    propertyBox->setLayout(formlayout);
+    static_cast<QVBoxLayout *>(layout())->insertWidget(layout()->indexOf(ui.descriptionBox) + 1, propertyBox);
+    _connectionBox = propertyBox;
+  }
 }
 
 /*** Sync Page ***/
@@ -199,11 +311,14 @@ SyncPage::SyncPage(QWidget *parent) : QWizardPage(parent) {
 void SyncPage::initializePage() {
   complete = false;
   hasError = false;
-  QString backend = qobject_cast<StorageSelectionPage *>(wizard()->page(CoreConfigWizard::StorageSelectionPage))->selectedBackend();
+
+  StorageSelectionPage *storagePage = qobject_cast<StorageSelectionPage *>(wizard()->page(CoreConfigWizard::StorageSelectionPage));
+  QString backend = storagePage->selectedBackend();
+  QVariantMap properties = storagePage->connectionProperties();
   Q_ASSERT(!backend.isEmpty());
   ui.user->setText(wizard()->field("adminUser.user").toString());
   ui.backend->setText(backend);
-  emit setupCore(backend);
+  emit setupCore(backend, properties);
 }
 
 int SyncPage::nextId() const {

@@ -21,17 +21,21 @@
 #ifndef ALIASMANAGER_H
 #define ALIASMANAGER_H
 
-#include "syncableobject.h"
-
 #include <QVariantMap>
 
+#include "bufferinfo.h"
+#include "syncableobject.h"
+
+class Network;
+
 class AliasManager : public SyncableObject {
+  SYNCABLE_OBJECT
   Q_OBJECT
 
 public:
   inline AliasManager(QObject *parent = 0) : SyncableObject(parent) { setAllowClientUpdates(true); }
   AliasManager &operator=(const AliasManager &other);
-  
+
   struct Alias {
     QString name;
     QString expansion;
@@ -45,24 +49,29 @@ public:
   inline int count() const { return _aliases.count(); }
   inline void removeAt(int index) { _aliases.removeAt(index); }
   inline Alias &operator[](int i) { return _aliases[i]; }
-  inline const Alias &operator[](int i) const { return _aliases[i]; }
+  inline const Alias &operator[](int i) const { return _aliases.at(i); }
   inline const AliasList &aliases() const { return _aliases; }
 
   static AliasList defaults();
+
+  typedef QList<QPair<BufferInfo, QString> > CommandList;
+
+  CommandList processInput(const BufferInfo &info, const QString &message);
 
 public slots:
   virtual QVariantMap initAliases() const;
   virtual void initSetAliases(const QVariantMap &aliases);
 
   virtual void addAlias(const QString &name, const QString &expansion);
-  
+
 protected:
   void setAliases(const QList<Alias> &aliases) { _aliases = aliases; }
+  virtual const Network *network(NetworkId) const = 0; // core and client require different access
 
-signals:
-  void aliasAdded(const QString &name, const QString &expansion);
-  
 private:
+  void processInput(const BufferInfo &info, const QString &message, CommandList &previousCommands);
+  void expand(const QString &alias, const BufferInfo &bufferInfo, const QString &msg, CommandList &previousCommands);
+
   AliasList _aliases;
 
 };

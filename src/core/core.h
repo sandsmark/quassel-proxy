@@ -45,11 +45,14 @@ class SessionThread;
 class SignalProxy;
 struct NetworkInfo;
 
+class AbstractSqlMigrationReader;
+class AbstractSqlMigrationWriter;
+
 class Core : public QObject {
   Q_OBJECT
 
-  public:
-  static Core * instance();
+public:
+  static Core *instance();
   static void destroy();
 
   static void saveState();
@@ -72,11 +75,11 @@ class Core : public QObject {
   /**
    * \param userId       The users Id
    * \param settingName  The Name of the Setting
-   * \param default      Value to return in case it's unset.
+   * \param defaultValue Value to return in case it's unset.
    * \return the Value of the Setting or the default value if it is unset.
    */
-  static inline QVariant getUserSetting(UserId userId, const QString &settingName, const QVariant &data = QVariant()) {
-    return instance()->_storage->getUserSetting(userId, settingName, data);
+  static inline QVariant getUserSetting(UserId userId, const QString &settingName, const QVariant &defaultValue = QVariant()) {
+    return instance()->_storage->getUserSetting(userId, settingName, defaultValue);
   }
 
   /* Identity handling */
@@ -132,17 +135,6 @@ class Core : public QObject {
    */
   static inline QList<NetworkInfo> networks(UserId user) {
     return instance()->_storage->networks(user);
-  }
-
-  //! Get the NetworkId for a network name.
-  /** \note This method is threadsafe.
-   *
-   *  \param user    The core user
-   *  \param network The name of the network
-   *  \return The NetworkId corresponding to the given network.
-   */
-  static inline NetworkId networkId(UserId user, const QString &network) {
-    return instance()->_storage->getNetworkId(user, network);
   }
 
   //! Get a list of Networks to restore
@@ -267,14 +259,24 @@ class Core : public QObject {
     return instance()->_storage->getBufferInfo(user, bufferId);
   }
 
-  //! Store a Message in the backlog.
+  //! Store a Message in the storage backend and set it's unique Id.
   /** \note This method is threadsafe.
    *
-   *  \param msg  The message object to be stored
-   *  \return The globally unique id for the stored message
+   *  \param message The message object to be stored
+   *  \return true on success
    */
-  static inline MsgId storeMessage(const Message &message) {
+  static inline bool storeMessage(Message &message) {
     return instance()->_storage->logMessage(message);
+  }
+
+  //! Store a list of Messages in the storage backend and set their unique Id.
+  /** \note This method is threadsafe.
+   *
+   *  \param messages The list message objects to be stored
+   *  \return true on success
+   */
+  static inline bool storeMessages(MessageList &messages) {
+    return instance()->_storage->logMessages(messages);
   }
 
   //! Request a certain number messages stored in a given buffer.
@@ -380,18 +382,24 @@ class Core : public QObject {
 
   static inline QTimer &syncTimer() { return instance()->_storageSyncTimer; }
 
+  static const int AddClientEventId;
+
 public slots:
   //! Make storage data persistent
   /** \note This method is threadsafe.
    */
   void syncStorage();
   void setupInternalClientSession(SignalProxy *proxy);
+
 signals:
   //! Sent when a BufferInfo is updated in storage.
   void bufferInfoUpdated(UserId user, const BufferInfo &info);
 
   //! Relay From CoreSession::sessionState(const QVariant &). Used for internal connection only
   void sessionState(const QVariant &);
+
+protected:
+  virtual void customEvent(QEvent *event);
 
 private slots:
   bool startListening();
@@ -400,6 +408,7 @@ private slots:
   void clientHasData();
   void clientDisconnected();
 
+  bool initStorage(const QString &backend, QVariantMap settings, bool setup = false);
   bool initStorage(QVariantMap dbSettings, bool setup = false);
 
 #ifdef HAVE_SSL
@@ -415,13 +424,21 @@ private:
 
   SessionThread *createSession(UserId userId, bool restoreState = false);
   void setupClientSession(QTcpSocket *socket, UserId uid);
+  void addClientHelper(QTcpSocket *socket, UserId uid);
   void processClientMessage(QTcpSocket *socket, const QVariantMap &msg);
   //void processCoreSetup(QTcpSocket *socket, QVariantMap &msg);
   QString setupCoreForInternalUsage();
   QString setupCore(QVariantMap setupData);
 
+  void registerStorageBackends();
   bool registerStorageBackend(Storage *);
+  void unregisterStorageBackends();
   void unregisterStorageBackend(Storage *);
+  bool selectBackend(const QString &backend);
+  void createUser();
+  void changeUserPass(const QString &username);
+  void saveBackendSettings(const QString &backend, const QVariantMap &settings);
+  QVariantMap promptForSettings(const Storage *storage);
 
   QHash<UserId, SessionThread *> sessions;
   Storage *_storage;
@@ -441,6 +458,13 @@ private:
   QDateTime _startTime;
 
   bool _configured;
+
+
+  static AbstractSqlMigrationReader *getMigrationReader(Storage *storage);
+  static AbstractSqlMigrationWriter *getMigrationWriter(Storage *storage);
+  static void stdInEcho(bool on);
+  static inline void enableStdInEcho() { stdInEcho(true); }
+  static inline void disableStdInEcho() { stdInEcho(false); }
 };
 
 #endif

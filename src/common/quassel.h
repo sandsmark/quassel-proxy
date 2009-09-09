@@ -84,6 +84,12 @@ public:
 
   static QString translationDirPath();
 
+  //! Returns a list of directories we look for scripts in
+  /** We look for a subdirectory named "scripts" in the configdir and in all datadir paths.
+  *   \return A list of directory paths containing executable scripts for /exec
+  */
+  static QStringList scriptDirPaths();
+
   static void loadTranslation(const QLocale &locale);
 
   static inline void setCliParser(AbstractCliParser *cliParser);
@@ -100,6 +106,7 @@ public:
 protected:
   Quassel();
   virtual bool init();
+  virtual void quit();
 
   inline void setRunMode(RunMode mode);
   inline void setDataDirPaths(const QStringList &paths);
@@ -111,6 +118,7 @@ private:
   static void handleSignal(int signal);
   static void logBacktrace(const QString &filename);
 
+  static Quassel *_instance;
   static BuildInfo _buildInfo;
   static AbstractCliParser *_cliParser;
   static RunMode _runMode;

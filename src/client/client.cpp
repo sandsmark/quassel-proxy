@@ -27,15 +27,20 @@
 #include "buffersettings.h"
 #include "buffersyncer.h"
 #include "bufferviewconfig.h"
+#include "bufferviewoverlay.h"
+#include "clientaliasmanager.h"
 #include "clientbacklogmanager.h"
 #include "clientbufferviewmanager.h"
 #include "clientirclisthelper.h"
 #include "clientidentity.h"
+#include "clientignorelistmanager.h"
+#include "clientuserinputhandler.h"
 #include "ircchannel.h"
 #include "ircuser.h"
 #include "message.h"
 #include "messagemodel.h"
 #include "network.h"
+#include "networkconfig.h"
 #include "networkmodel.h"
 #include "quassel.h"
 #include "signalproxy.h"
@@ -48,6 +53,11 @@ QPointer<Client> Client::instanceptr = 0;
 AccountId Client::_currentCoreAccount = 0;
 
 /*** Initialization/destruction ***/
+
+bool Client::instanceExists()
+{
+  return instanceptr;
+}
 
 Client *Client::instance() {
   if(!instanceptr)
@@ -75,9 +85,14 @@ Client::Client(QObject *parent)
     _networkModel(0),
     _bufferModel(0),
     _bufferSyncer(0),
+    _aliasManager(0),
     _backlogManager(new ClientBacklogManager(this)),
     _bufferViewManager(0),
+    _bufferViewOverlay(new BufferViewOverlay(this)),
     _ircListHelper(new ClientIrcListHelper(this)),
+    _inputHandler(0),
+    _networkConfig(0),
+    _ignoreListManager(0),
     _messageModel(0),
     _messageProcessor(0),
     _connectedToCore(false),
@@ -102,6 +117,7 @@ void Client::init() {
   _bufferModel = new BufferModel(_networkModel);
   _messageModel = mainUi()->createMessageModel(this);
   _messageProcessor = mainUi()->createMessageProcessor(this);
+  _inputHandler = new ClientUserInputHandler(this);
 
   SignalProxy *p = signalProxy();
 
@@ -109,7 +125,7 @@ void Client::init() {
   p->attachSlot(SIGNAL(displayStatusMsg(QString, QString)), this, SLOT(recvStatusMsg(QString, QString)));
 
   p->attachSlot(SIGNAL(bufferInfoUpdated(BufferInfo)), _networkModel, SLOT(bufferUpdated(BufferInfo)));
-  p->attachSignal(this, SIGNAL(sendInput(BufferInfo, QString)));
+  p->attachSignal(inputHandler(), SIGNAL(sendInput(BufferInfo, QString)));
   p->attachSignal(this, SIGNAL(requestNetworkStates()));
 
   p->attachSignal(this, SIGNAL(requestCreateIdentity(const Identity &, const QVariantMap &)), SIGNAL(createIdentity(const Identity &, const QVariantMap &)));
@@ -263,9 +279,21 @@ void Client::coreIdentityRemoved(IdentityId id) {
   }
 }
 
-/***  ***/
-void Client::userInput(BufferInfo bufferInfo, QString message) {
-  emit instance()->sendInput(bufferInfo, message);
+/*** User input handling ***/
+
+void Client::userInput(const BufferInfo &bufferInfo, const QString &message) {
+  // we need to make sure that AliasManager is ready before processing input
+  if(aliasManager() && aliasManager()->isInitialized())
+    inputHandler()->handleUserInput(bufferInfo, message);
+  else
+   instance()-> _userInputBuffer.append(qMakePair(bufferInfo, message));
+}
+
+void Client::sendBufferedUserInput() {
+  for(int i = 0; i < _userInputBuffer.count(); i++)
+    userInput(_userInputBuffer.at(i).first, _userInputBuffer.at(i).second);
+
+  _userInputBuffer.clear();
 }
 
 /*** core connection stuff ***/
@@ -291,15 +319,32 @@ void Client::setSyncedToCore() {
   connect(bufferSyncer(), SIGNAL(bufferRenamed(BufferId, QString)), this, SLOT(bufferRenamed(BufferId, QString)));
   connect(bufferSyncer(), SIGNAL(buffersPermanentlyMerged(BufferId, BufferId)), this, SLOT(buffersPermanentlyMerged(BufferId, BufferId)));
   connect(bufferSyncer(), SIGNAL(buffersPermanentlyMerged(BufferId, BufferId)), _messageModel, SLOT(buffersPermanentlyMerged(BufferId, BufferId)));
-  connect(bufferSyncer(), SIGNAL(initDone()), this, SLOT(requestInitialBacklog()));
   connect(networkModel(), SIGNAL(setLastSeenMsg(BufferId, MsgId)), bufferSyncer(), SLOT(requestSetLastSeenMsg(BufferId, const MsgId &)));
   signalProxy()->synchronize(bufferSyncer());
 
   // create a new BufferViewManager
   Q_ASSERT(!_bufferViewManager);
   _bufferViewManager = new ClientBufferViewManager(signalProxy(), this);
-  connect(bufferViewManager(), SIGNAL(initDone()), this, SLOT(requestInitialBacklog()));
   connect(bufferViewManager(), SIGNAL(initDone()), this, SLOT(createDefaultBufferView()));
+
+  // create AliasManager
+  Q_ASSERT(!_aliasManager);
+  _aliasManager = new ClientAliasManager(this);
+  connect(aliasManager(), SIGNAL(initDone()), SLOT(sendBufferedUserInput()));
+  signalProxy()->synchronize(aliasManager());
+
+  // create NetworkConfig
+  Q_ASSERT(!_networkConfig);
+  _networkConfig = new NetworkConfig("GlobalNetworkConfig", this);
+  signalProxy()->synchronize(networkConfig());
+
+  // create IgnoreListManager
+  Q_ASSERT(!_ignoreListManager);
+  _ignoreListManager = new ClientIgnoreListManager(this);
+  signalProxy()->synchronize(ignoreListManager());
+
+  // trigger backlog request once all active bufferviews are initialized
+  connect(bufferViewOverlay(), SIGNAL(initDone()), this, SLOT(requestInitialBacklog()));
 
   _syncedToCore = true;
   emit connected();
@@ -307,14 +352,21 @@ void Client::setSyncedToCore() {
 }
 
 void Client::requestInitialBacklog() {
-  if(bufferViewManager()->isInitialized() && bufferSyncer()->isInitialized())
-    Client::backlogManager()->requestInitialBacklog();
+  // usually it _should_ take longer until the bufferViews are initialized, so that's what
+  // triggers this slot. But we have to make sure that we know all buffers yet.
+  // so we check the BufferSyncer and in case it wasn't initialized we wait for that instead
+  if(!bufferSyncer()->isInitialized()) {
+    connect(bufferViewOverlay(), SIGNAL(initDone()), this, SLOT(requestInitialBacklog()));
+    connect(bufferSyncer(), SIGNAL(initDone()), this, SLOT(requestInitialBacklog()));
+    return;
+  }
+  _backlogManager->requestInitialBacklog();
 }
 
 void Client::createDefaultBufferView() {
   if(bufferViewManager()->bufferViewConfigs().isEmpty()) {
     BufferViewConfig config(-1);
-    config.setBufferViewName(tr("All Buffers"));
+    config.setBufferViewName(tr("All Chats"));
     config.initSetBufferList(networkModel()->allBufferIdsSorted());
     bufferViewManager()->requestCreateBufferView(config.toVariantMap());
   }
@@ -349,6 +401,18 @@ void Client::disconnectedFromCore() {
     _bufferViewManager = 0;
   }
 
+  if(_aliasManager) {
+    _aliasManager->deleteLater();
+    _aliasManager = 0;
+  }
+
+  if(_ignoreListManager) {
+    _ignoreListManager->deleteLater();
+    _ignoreListManager = 0;
+  }
+  // we probably don't want to save pending input for reconnect
+  _userInputBuffer.clear();
+
   _messageModel->clear();
   _networkModel->clear();
 
@@ -371,6 +435,10 @@ void Client::disconnectedFromCore() {
   }
   Q_ASSERT(_identities.isEmpty());
 
+  if(_networkConfig) {
+    _networkConfig->deleteLater();
+    _networkConfig = 0;
+  }
 }
 
 /*** ***/
@@ -465,8 +533,13 @@ void Client::logMessage(QtMsgType type, const char *msg) {
     Quassel::logFatalMessage(msg);
   } else {
     QString msgString = QString("%1\n").arg(msg);
+
+    //Check to see if there is an instance around, else we risk recursions
+    //when calling instance() and creating new ones.
+    if (!instanceExists())
+      return;
+
     instance()->_debugLog << msgString;
     emit instance()->logUpdated(msgString);
   }
 }
-

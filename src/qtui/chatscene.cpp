@@ -96,6 +96,7 @@ ChatScene::ChatScene(QAbstractItemModel *model, const QString &idString, qreal w
           this, SLOT(rowsInserted(const QModelIndex &, int, int)));
   connect(model, SIGNAL(rowsAboutToBeRemoved(const QModelIndex &, int, int)),
           this, SLOT(rowsAboutToBeRemoved(const QModelIndex &, int, int)));
+  connect(model, SIGNAL(dataChanged(QModelIndex, QModelIndex)), SLOT(dataChanged(QModelIndex, QModelIndex)));
 
   if(model->rowCount() > 0)
     rowsInserted(QModelIndex(), 0, model->rowCount() - 1);
@@ -380,6 +381,10 @@ void ChatScene::rowsAboutToBeRemoved(const QModelIndex &parent, int start, int e
   updateSceneRect();
 }
 
+void ChatScene::dataChanged(const QModelIndex &tl, const QModelIndex &br) {
+  layout(tl.row(), br.row(), _sceneRect.width());
+}
+
 void ChatScene::updateForViewport(qreal width, qreal height) {
   _viewportHeight = height;
   setWidth(width);
@@ -388,21 +393,37 @@ void ChatScene::updateForViewport(qreal width, qreal height) {
 void ChatScene::setWidth(qreal width) {
   if(width == _sceneRect.width())
     return;
+  layout(0, _lines.count()-1, width);
+}
 
+void ChatScene::layout(int start, int end, qreal width) {
   // clock_t startT = clock();
 
   // disabling the index while doing this complex updates is about
   // 2 to 10 times faster!
   //setItemIndexMethod(QGraphicsScene::NoIndex);
 
-  QList<ChatLine *>::iterator lineIter = _lines.end();
-  QList<ChatLine *>::iterator lineIterBegin = _lines.begin();
-  qreal linePos = _sceneRect.y() + _sceneRect.height();
-  qreal contentsWidth = width - secondColumnHandle()->sceneRight();
-  while(lineIter != lineIterBegin) {
-    lineIter--;
-    (*lineIter)->setGeometryByWidth(width, contentsWidth, linePos);
+  if(end >= 0) {
+    int row = end;
+    qreal linePos = _lines.at(row)->scenePos().y() + _lines.at(row)->height();
+    qreal contentsWidth = width - secondColumnHandle()->sceneRight();
+    while(row >= start) {
+      _lines.at(row--)->setGeometryByWidth(width, contentsWidth, linePos);
+    }
+
+    if(row >= 0) {
+      // remaining items don't need geometry changes, but maybe repositioning?
+      ChatLine *line = _lines.at(row);
+      qreal offset = linePos - (line->scenePos().y() + line->height());
+      if(offset != 0) {
+        while(row >= 0) {
+          line = _lines.at(row--);
+          line->setPos(0, line->scenePos().y() + offset);
+        }
+      }
+    }
   }
+
   //setItemIndexMethod(QGraphicsScene::BspTreeIndex);
 
   updateSceneRect(width);

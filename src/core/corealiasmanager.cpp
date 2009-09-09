@@ -21,8 +21,10 @@
 #include "corealiasmanager.h"
 
 #include "core.h"
+#include "corenetwork.h"
 #include "coresession.h"
 
+INIT_SYNCABLE_OBJECT(CoreAliasManager)
 CoreAliasManager::CoreAliasManager(CoreSession *parent)
   : AliasManager(parent)
 {
@@ -33,12 +35,10 @@ CoreAliasManager::CoreAliasManager(CoreSession *parent)
     return;
   }
 
-  QVariantMap aliases = Core::getUserSetting(session->user(), "Aliases").toMap();
   initSetAliases(Core::getUserSetting(session->user(), "Aliases").toMap());
   if(isEmpty())
     loadDefaults();
 }
-
 
 CoreAliasManager::~CoreAliasManager() {
   CoreSession *session = qobject_cast<CoreSession *>(parent());
@@ -50,6 +50,9 @@ CoreAliasManager::~CoreAliasManager() {
   Core::setUserSetting(session->user(), "Aliases", initAliases());
 }
 
+const Network *CoreAliasManager::network(NetworkId id) const {
+  return qobject_cast<CoreSession *>(parent())->network(id);
+}
 
 void CoreAliasManager::loadDefaults() {
   foreach(Alias alias, AliasManager::defaults()) {

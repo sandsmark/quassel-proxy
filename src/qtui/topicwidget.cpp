@@ -20,8 +20,6 @@
 
 #include "topicwidget.h"
 
-#include <QDebug>
-
 #include "client.h"
 #include "iconloader.h"
 #include "networkmodel.h"
@@ -30,13 +28,11 @@ TopicWidget::TopicWidget(QWidget *parent)
   : AbstractItemView(parent)
 {
   ui.setupUi(this);
-  ui.topicEditButton->setPixmap(BarIcon("edit-rename"));
-
-  ui.topicLineEdit->hide();
+  ui.topicEditButton->setIcon(SmallIcon("edit-rename"));
+  ui.topicLineEdit->setWordWrapEnabled(true);
   ui.topicLineEdit->installEventFilter(this);
-  ui.topicLabel->show();
-  setContentsMargins(0,0,0,0);
-  parent->setMinimumHeight(layout()->sizeHint().height() + 2*qApp->style()->pixelMetric(QStyle::PM_DockWidgetTitleBarButtonMargin));
+
+  connect(ui.topicLabel, SIGNAL(clickableActivated(Clickable)), SLOT(clickableActivated(Clickable)));
 }
 
 void TopicWidget::currentChanged(const QModelIndex &current, const QModelIndex &previous) {
@@ -61,7 +57,12 @@ void TopicWidget::setTopic(const QString &newtopic) {
   switchPlain();
 }
 
-void TopicWidget::on_topicLineEdit_returnPressed() {
+void TopicWidget::clickableActivated(const Clickable &click) {
+  NetworkId networkId = selectionModel()->currentIndex().data(NetworkModel::NetworkIdRole).value<NetworkId>();
+  click.activate(networkId, _topic);
+}
+
+void TopicWidget::on_topicLineEdit_textEntered() {
   QModelIndex currentIdx = currentIndex();
   if(currentIdx.isValid() && currentIdx.data(NetworkModel::BufferTypeRole) == BufferInfo::ChannelBuffer) {
     BufferInfo bufferInfo = currentIdx.data(NetworkModel::BufferInfoRole).value<BufferInfo>();
@@ -78,26 +79,15 @@ void TopicWidget::on_topicEditButton_clicked() {
 }
 
 void TopicWidget::switchEditable() {
-  ui.topicLabel->hide();
-  ui.topicEditButton->hide();
-  ui.topicLineEdit->show();
+  ui.stackedWidget->setCurrentIndex(1);
   ui.topicLineEdit->setFocus();
-
-  setFixedHeight(layout()->sizeHint().height());
-  // Update the dock widget too, else it won't resize in all styles... FIXME try to sanitize this
-  qobject_cast<QWidget *>(parent())->setMinimumHeight(height() + 2*qApp->style()->pixelMetric(QStyle::PM_DockWidgetTitleBarButtonMargin));
-  qobject_cast<QWidget *>(parent())->adjustSize();
+  updateGeometry();
 }
 
 void TopicWidget::switchPlain() {
-  ui.topicLineEdit->hide();
-  ui.topicLabel->show();
-  ui.topicEditButton->show();
+  ui.stackedWidget->setCurrentIndex(0);
   ui.topicLineEdit->setText(_topic);
-  setFixedHeight(layout()->sizeHint().height());
-  // Update the dock widget too, else it won't resize in all styles... FIXME try to sanitize this
-  qobject_cast<QWidget *>(parent())->setMinimumHeight(height() + 2*qApp->style()->pixelMetric(QStyle::PM_DockWidgetTitleBarButtonMargin));
-  qobject_cast<QWidget *>(parent())->adjustSize();
+  updateGeometry();
 }
 
 // filter for the input widget to switch back to normal mode

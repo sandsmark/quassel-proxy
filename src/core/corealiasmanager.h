@@ -26,17 +26,21 @@
 class CoreSession;
 
 class CoreAliasManager : public AliasManager {
+  SYNCABLE_OBJECT
   Q_OBJECT
 
 public:
-  CoreAliasManager(CoreSession *parent = 0);
+  explicit CoreAliasManager(CoreSession *parent);
   ~CoreAliasManager();
 
   inline virtual const QMetaObject *syncMetaObject() const { return &AliasManager::staticMetaObject; }
 
+protected:
+  const Network *network(NetworkId) const;
+
 private:
   void loadDefaults();
-  
+
 };
 
 #endif //COREALIASMANAGER_H

@@ -31,7 +31,7 @@
 #include "systemtray.h"
 
 SystrayNotificationBackend::SystrayNotificationBackend(QObject *parent)
-  : AbstractNotificationBackend(parent)
+  : AbstractNotificationBackend(parent), _activeId(0)
 {
   NotificationSettings notificationSettings;
   _showBubble = notificationSettings.value("Systray/ShowBubble", true).toBool();
@@ -40,10 +40,15 @@ SystrayNotificationBackend::SystrayNotificationBackend(QObject *parent)
   notificationSettings.notify("Systray/ShowBubble", this, SLOT(showBubbleChanged(const QVariant &)));
   notificationSettings.notify("Systray/Animate", this, SLOT(animateChanged(const QVariant &)));
 
-  connect(QtUi::mainWindow()->systemTray(), SIGNAL(messageClicked()), this, SIGNAL(activated()));
+  connect(QtUi::mainWindow()->systemTray(), SIGNAL(messageClicked()), SLOT(notificationActivated()));
+  connect(QtUi::mainWindow()->systemTray(), SIGNAL(activated(QSystemTrayIcon::ActivationReason)),
+                                            SLOT(notificationActivated(QSystemTrayIcon::ActivationReason)));
 }
 
 void SystrayNotificationBackend::notify(const Notification &notification) {
+  if(notification.type != Highlight && notification.type != PrivMsg)
+    return;
+
   /* fancy stuff to be implemented later: show notifications in order
   _notifications.append(notification);
   if(_showBubble && _notifications.count() == 1) {
@@ -67,6 +72,7 @@ void SystrayNotificationBackend::close(uint notificationId) {
   if(_notifications.isEmpty()) {
   */
   _notifications.clear();
+  _activeId = 0;
   closeBubble();
   QtUi::mainWindow()->systemTray()->setAlert(false);
 }
@@ -74,8 +80,10 @@ void SystrayNotificationBackend::close(uint notificationId) {
 void SystrayNotificationBackend::showBubble() {
   // fancy stuff later: show messages in order
   // for now, we just show the last message
-  if(_notifications.isEmpty()) return;
+  if(_notifications.isEmpty())
+    return;
   Notification n = _notifications.takeLast();
+  _activeId = n.notificationId;
   QString title = Client::networkModel()->networkName(n.bufferId) + " - " + Client::networkModel()->bufferName(n.bufferId);
   QString message = QString("<%1> %2").arg(n.sender, n.message);
   QtUi::mainWindow()->systemTray()->showMessage(title, message);
@@ -86,6 +94,19 @@ void SystrayNotificationBackend::closeBubble() {
 #ifdef Q_WS_X11
   QtUi::mainWindow()->systemTray()->showMessage("", "", QSystemTrayIcon::NoIcon, 1);
 #endif
+}
+
+void SystrayNotificationBackend::notificationActivated() {
+  if(QtUi::mainWindow()->systemTray()->isAlerted()) {
+    QtUi::mainWindow()->systemTray()->setInhibitActivation();
+    emit activated(_activeId);
+  }
+}
+
+void SystrayNotificationBackend::notificationActivated(QSystemTrayIcon::ActivationReason reason) {
+  if(reason == QSystemTrayIcon::Trigger) {
+    notificationActivated();
+  }
 }
 
 void SystrayNotificationBackend::showBubbleChanged(const QVariant &v) {

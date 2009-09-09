@@ -105,20 +105,20 @@ void ChatLine::setSecondColumn(const qreal &senderWidth, const qreal &contentsWi
 void ChatLine::setGeometryByWidth(const qreal &width, const qreal &contentsWidth, qreal &linePos) {
   qreal height = _contentsItem.setGeometryByWidth(contentsWidth);
   linePos -= height;
-  bool needGeometryChange = linePos == pos().y();
+  bool needGeometryChange = (height != _height || width != _width);
+
+  if(height != _height) {
+    _timestampItem.prepareGeometryChange();
+    _timestampItem.setHeight(height);
+    _senderItem.prepareGeometryChange();
+    _senderItem.setHeight(height);
+  }
 
   if(needGeometryChange) {
-    _timestampItem.prepareGeometryChange();
-    _senderItem.prepareGeometryChange();
-  }
-  _timestampItem.setHeight(height);
-  _senderItem.setHeight(height);
-
-  if(needGeometryChange)
     prepareGeometryChange();
-
-  _height = height;
-  _width = width;
+    _height = height;
+    _width = width;
+  }
 
   setPos(0, linePos); // set pos is _very_ cheap if nothing changes.
 }
@@ -154,33 +154,42 @@ void ChatLine::setHighlighted(bool highlighted) {
 void ChatLine::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) {
   Q_UNUSED(option);
   Q_UNUSED(widget);
-  if(_selection & Highlighted) {
-    painter->fillRect(boundingRect(), QBrush(QtUi::style()->highlightColor()));
+
+  const QAbstractItemModel *model_ = model();
+  QModelIndex myIdx = model_->index(row(), 0);
+  Message::Type type = (Message::Type)myIdx.data(MessageModel::TypeRole).toInt();
+  UiStyle::MessageLabel label = (UiStyle::MessageLabel)myIdx.data(ChatLineModel::MsgLabelRole).toInt();
+
+  QTextCharFormat msgFmt = QtUi::style()->format(UiStyle::formatType(type), label);
+  if(msgFmt.hasProperty(QTextFormat::BackgroundBrush)) {
+    painter->fillRect(boundingRect(), msgFmt.background());
   }
+
   if(_selection & Selected) {
-    qreal left = item((ChatLineModel::ColumnType)(_selection & ItemMask)).x();
-    QRectF selectRect(left, 0, width() - left, height());
-    painter->fillRect(selectRect, QApplication::palette().brush(QPalette::Highlight));
+    QTextCharFormat selFmt = QtUi::style()->format(UiStyle::formatType(type), label | UiStyle::Selected);
+    if(selFmt.hasProperty(QTextFormat::BackgroundBrush)) {
+      qreal left = item((ChatLineModel::ColumnType)(_selection & ItemMask)).x();
+      QRectF selectRect(left, 0, width() - left, height());
+      painter->fillRect(selectRect, selFmt.background());
+    }
   }
 
   // new line marker
-  const QAbstractItemModel *model_ = model();
   if(model_ && row() > 0  && chatScene()->isSingleBufferScene()) {
     QModelIndex prevRowIdx = model_->index(row() - 1, 0);
-    MsgId prevMsgId = model_->data(prevRowIdx, MessageModel::MsgIdRole).value<MsgId>();
-    QModelIndex myIdx = model_->index(row(), 0);
-    MsgId myMsgId = model_->data(myIdx, MessageModel::MsgIdRole).value<MsgId>();
-    Message::Flags flags = (Message::Flags)model_->data(myIdx, MessageModel::FlagsRole).toInt();
+    MsgId prevMsgId = prevRowIdx.data(MessageModel::MsgIdRole).value<MsgId>();
+    MsgId myMsgId = myIdx.data(MessageModel::MsgIdRole).value<MsgId>();
+    Message::Flags flags = (Message::Flags)myIdx.data(MessageModel::FlagsRole).toInt();
+
     // don't show the marker if we wrote that new line
     if(!(flags & Message::Self)) {
       BufferId bufferId = BufferId(chatScene()->idString().toInt());
       MsgId lastSeenMsgId = Client::networkModel()->lastSeenMarkerMsgId(bufferId);
       if(lastSeenMsgId < myMsgId && lastSeenMsgId >= prevMsgId) {
-	QtUiStyleSettings s("Colors");
-	QLinearGradient gradient(0, 0, 0, contentsItem().fontMetrics()->lineSpacing());
-	gradient.setColorAt(0, s.value("newMsgMarkerFG", QColor(Qt::red)).value<QColor>());
-	gradient.setColorAt(0.1, Qt::transparent);
-	painter->fillRect(boundingRect(), gradient);
+        QLinearGradient gradient(0, 0, 0, contentsItem().fontMetrics()->lineSpacing());
+        gradient.setColorAt(0, QtUi::style()->brush(UiStyle::MarkerLine).color()); // FIXME: Use full (gradient?) brush instead of just the color
+        gradient.setColorAt(0.1, Qt::transparent);
+        painter->fillRect(boundingRect(), gradient);
       }
     }
   }

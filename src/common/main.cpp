@@ -29,6 +29,7 @@
 #  include "proxyapplication.h"
 #elif defined BUILD_MONO
 #  include "monoapplication.h"
+
 #else
 #error "Something is wrong - you need to #define a build mode!"
 #endif
@@ -41,12 +42,6 @@
 #ifdef HAVE_KDE
 #  include <KAboutData>
 #  include "kcmdlinewrapper.h"
-#endif
-
-#if !defined(BUILD_CORE) && defined(STATIC)
-#include <QtPlugin>
-Q_IMPORT_PLUGIN(qjpeg)
-Q_IMPORT_PLUGIN(qgif)
 #endif
 
 #include "cliparser.h"
@@ -71,6 +66,7 @@ int main(int argc, char **argv) {
                         ki18n("A modern, distributed IRC client"));
   aboutData.addLicense(KAboutData::License_GPL_V2);
   aboutData.addLicense(KAboutData::License_GPL_V3);
+  aboutData.setBugAddress("http://bugs.quassel-irc.org");
   aboutData.setOrganizationDomain(Quassel::buildInfo().organizationDomain.toUtf8());
   KCmdLineArgs::init(argc, argv, &aboutData);
 
@@ -86,26 +82,23 @@ int main(int argc, char **argv) {
   // put shared client&core arguments here
   cliParser->addSwitch("debug",'d', "Enable debug output");
   cliParser->addSwitch("help",'h', "Display this help and exit");
-  cliParser->addSwitch("version", 'v', "Display version information");
-#ifdef BUILD_QTUI
-  cliParser->addOption("configdir <path>", 'c', "Specify the directory holding the client configuration");
-#else
-  cliParser->addOption("configdir <path>", 'c', "Specify the directory holding configuration files, the SQlite database and the SSL certificate");
-#endif
-  cliParser->addOption("datadir <path>", 0, "DEPRECATED - Use --configdir instead");
 
-#if defined(BUILD_QTUI) || defined(BUILD_PROXY) || defined(BUILD_MONO)
+#ifndef BUILD_CORE
   // put client-only arguments here
+  cliParser->addOption("qss <file.qss>", 0, "Load a custom application stylesheet");
   cliParser->addSwitch("debugbufferswitches", 0, "Enables debugging for bufferswitches");
   cliParser->addSwitch("debugmodel", 0, "Enables debugging for models");
 #endif
-#if defined(BUILD_CORE) || defined(BUILD_MONO)
+#ifndef BUILD_QTUI
   // put core-only arguments here
   cliParser->addOption("listen <address>[,<address[,...]]>", 0, "The address(es) quasselcore will listen on", "0.0.0.0,::");
   cliParser->addOption("port <port>",'p', "The port quasselcore will listen at", QString("4242"));
   cliParser->addSwitch("norestore", 'n', "Don't restore last core's state");
   cliParser->addOption("logfile <path>", 'l', "Path to logfile");
   cliParser->addOption("loglevel <level>", 'L', "Loglevel Debug|Info|Warning|Error", "Info");
+  cliParser->addOption("select-backend <backendidentifier>", 0, "Starts an interactive session and switches your current storage backend to the new one. Attempts a merge if the new backend is uninitialized and the old backend supports migration. Otherwise prompts for new user credentials!");
+  cliParser->addSwitch("add-user", 0, "Starts an interactive session to add a new core user");
+  cliParser->addOption("change-userpass <username>", 0, "Starts an interactive session to change the password of the user identified by username");
 #endif
 
 #ifdef HAVE_KDE

@@ -23,6 +23,7 @@
 #include "core.h"
 #include "coresession.h"
 #include "coresettings.h"
+#include "postgresqlstorage.h"
 #include "quassel.h"
 #include "signalproxy.h"
 #include "sqlitestorage.h"
@@ -33,7 +34,28 @@
 
 // migration related
 #include <QFile>
+#ifdef Q_OS_WIN32
+#  include <windows.h>
+#else
+#  include <termios.h>
+#endif /* Q_OS_WIN32 */
 
+// ==============================
+//  Custom Events
+// ==============================
+const int Core::AddClientEventId = QEvent::registerEventType();
+
+class AddClientEvent : public QEvent {
+public:
+  AddClientEvent(QTcpSocket *socket, UserId uid) : QEvent(QEvent::Type(Core::AddClientEventId)), socket(socket), userId(uid) {}
+  QTcpSocket *socket;
+  UserId userId;
+};
+
+
+// ==============================
+//  Core
+// ==============================
 Core *Core::instanceptr = 0;
 
 Core *Core::instance() {
@@ -130,8 +152,7 @@ Core::Core()
     exit(EXIT_FAILURE);
   }
 
-  // Register storage backends here!
-  registerStorageBackend(new SqliteStorage(this));
+  registerStorageBackends();
 
   connect(&_storageSyncTimer, SIGNAL(timeout()), this, SLOT(syncStorage()));
   _storageSyncTimer.start(10 * 60 * 1000); // 10 minutes
@@ -141,15 +162,30 @@ void Core::init() {
   CoreSettings cs;
   _configured = initStorage(cs.storageSettings().toMap());
 
+  if(Quassel::isOptionSet("select-backend")) {
+    selectBackend(Quassel::optionValue("select-backend"));
+    exit(0);
+  }
+
   if(!_configured) {
     if(!_storageBackends.count()) {
       qWarning() << qPrintable(tr("Could not initialize any storage backend! Exiting..."));
-      qWarning() << qPrintable(tr("Currently, Quassel only supports SQLite3. You need to build your\n"
-				  "Qt library with the sqlite plugin enabled in order for quasselcore\n"
+      qWarning() << qPrintable(tr("Currently, Quassel supports SQLite3 and PostgreSQL. You need to build your\n"
+				  "Qt library with the sqlite or postgres plugin enabled in order for quasselcore\n"
 				  "to work."));
       exit(1); // TODO make this less brutal (especially for mono client -> popup)
     }
     qWarning() << "Core is currently not configured! Please connect with a Quassel Client for basic setup.";
+  }
+
+  if(Quassel::isOptionSet("add-user")) {
+    createUser();
+    exit(0);
+  }
+
+  if(Quassel::isOptionSet("change-userpass")) {
+    changeUserPass(Quassel::optionValue("change-userpass"));
+    exit(0);
   }
 
   connect(&_server, SIGNAL(newConnection()), this, SLOT(incomingConnection()));
@@ -239,6 +275,11 @@ QString Core::setupCore(QVariantMap setupData) {
 }
 
 /*** Storage Handling ***/
+void Core::registerStorageBackends() {
+  // Register storage backends here!
+  registerStorageBackend(new SqliteStorage(this));
+  registerStorageBackend(new PostgreSqlStorage(this));
+}
 
 bool Core::registerStorageBackend(Storage *backend) {
   if(backend->isAvailable()) {
@@ -250,6 +291,13 @@ bool Core::registerStorageBackend(Storage *backend) {
   }
 }
 
+void Core::unregisterStorageBackends() {
+  foreach(Storage *s, _storageBackends.values()) {
+    s->deleteLater();
+  }
+  _storageBackends.clear();
+}
+
 void Core::unregisterStorageBackend(Storage *backend) {
   _storageBackends.remove(backend->displayName());
   backend->deleteLater();
@@ -257,10 +305,9 @@ void Core::unregisterStorageBackend(Storage *backend) {
 
 // old db settings:
 // "Type" => "sqlite"
-bool Core::initStorage(QVariantMap dbSettings, bool setup) {
+bool Core::initStorage(const QString &backend, QVariantMap settings, bool setup) {
   _storage = 0;
 
-  QString backend = dbSettings["Backend"].toString();
   if(backend.isEmpty()) {
     return false;
   }
@@ -273,13 +320,13 @@ bool Core::initStorage(QVariantMap dbSettings, bool setup) {
     return false;
   }
 
-  Storage::State storageState = storage->init(dbSettings);
+  Storage::State storageState = storage->init(settings);
   switch(storageState) {
   case Storage::NeedsSetup:
     if(!setup)
       return false; // trigger setup process
-    if(storage->setup(dbSettings))
-      return initStorage(dbSettings, false);
+    if(storage->setup(settings))
+      return initStorage(backend, settings, false);
     // if setup wasn't successfull we mark the backend as unavailable
   case Storage::NotAvailable:
     qCritical() << "Selected storage backend is not available:" << backend;
@@ -289,15 +336,18 @@ bool Core::initStorage(QVariantMap dbSettings, bool setup) {
     return false;
   case Storage::IsReady:
     // delete all other backends
-    foreach(Storage *s, _storageBackends.values()) {
-      if(s != storage) s->deleteLater();
-    }
-    _storageBackends.clear();
+    _storageBackends.remove(backend);
+    unregisterStorageBackends();
     connect(storage, SIGNAL(bufferInfoUpdated(UserId, const BufferInfo &)), this, SIGNAL(bufferInfoUpdated(UserId, const BufferInfo &)));
   }
   _storage = storage;
   return true;
 }
+
+bool Core::initStorage(QVariantMap dbSettings, bool setup) {
+  return initStorage(dbSettings["Backend"].toString(), dbSettings["ConnectionProperties"].toMap(), setup);
+}
+
 
 void Core::syncStorage() {
   if(_storage)
@@ -501,6 +551,8 @@ void Core::processClientMessage(QTcpSocket *socket, const QVariantMap &msg) {
         QVariantMap v;
         v["DisplayName"] = backend->displayName();
         v["Description"] = backend->description();
+	v["SetupKeys"] = backend->setupKeys();
+	v["SetupDefaults"] = backend->setupDefaults();
         backends.append(v);
       }
       reply["StorageBackends"] = backends;
@@ -511,6 +563,7 @@ void Core::processClientMessage(QTcpSocket *socket, const QVariantMap &msg) {
     clientInfo[socket] = msg; // store for future reference
     reply["MsgType"] = "ClientInitAck";
     SignalProxy::writeDataToDevice(socket, reply);
+    socket->flush(); // ensure that the write cache is flushed before we switch to ssl
 
 #ifdef HAVE_SSL
     // after we told the client that we are ssl capable we switch to ssl mode
@@ -611,19 +664,48 @@ void Core::clientDisconnected() {
 }
 
 void Core::setupClientSession(QTcpSocket *socket, UserId uid) {
-  // Find or create session for validated user
-  SessionThread *sess;
-  if(sessions.contains(uid)) sess = sessions[uid];
-  else sess = createSession(uid);
-  // Hand over socket, session then sends state itself
+  // From now on everything is handled by the client session
   disconnect(socket, 0, this, 0);
+  socket->flush();
   blocksizes.remove(socket);
   clientInfo.remove(socket);
-  if(!sess) {
-    qWarning() << qPrintable(tr("Could not initialize session for client:")) << qPrintable(socket->peerAddress().toString());
-    socket->close();
+
+  // Find or create session for validated user
+  SessionThread *session;
+  if(sessions.contains(uid)) {
+    session = sessions[uid];
+  } else {
+    session = createSession(uid);
+    if(!session) {
+      qWarning() << qPrintable(tr("Could not initialize session for client:")) << qPrintable(socket->peerAddress().toString());
+      socket->close();
+      return;
+    }
   }
-  sess->addClient(socket);
+
+  // as we are currently handling an event triggered by incoming data on this socket
+  // it is unsafe to directly move the socket to the client thread.
+  QCoreApplication::postEvent(this, new AddClientEvent(socket, uid));
+}
+
+void Core::customEvent(QEvent *event) {
+  if(event->type() == AddClientEventId) {
+    AddClientEvent *addClientEvent = static_cast<AddClientEvent *>(event);
+    addClientHelper(addClientEvent->socket, addClientEvent->userId);
+    return;
+  }
+}
+
+void Core::addClientHelper(QTcpSocket *socket, UserId uid) {
+  // Find or create session for validated user
+  if(!sessions.contains(uid)) {
+    qWarning() << qPrintable(tr("Could not find a session for client:")) << qPrintable(socket->peerAddress().toString());
+    socket->close();
+    return;
+  }
+
+  SessionThread *session = sessions[uid];
+  session->addClient(socket);
 }
 
 void Core::setupInternalClientSession(SignalProxy *proxy) {
@@ -674,3 +756,255 @@ void Core::socketError(QAbstractSocket::SocketError err) {
   if(socket && err != QAbstractSocket::RemoteHostClosedError)
     qWarning() << "Core::socketError()" << socket << err << socket->errorString();
 }
+
+// migration / backend selection
+bool Core::selectBackend(const QString &backend) {
+  // reregister all storage backends
+  registerStorageBackends();
+  if(!_storageBackends.contains(backend)) {
+    qWarning() << qPrintable(QString("Core::selectBackend(): unsupported backend: %1").arg(backend));
+    qWarning() << "    supported backends are:" << qPrintable(QStringList(_storageBackends.keys()).join(", "));
+    return false;
+  }
+
+  Storage *storage = _storageBackends[backend];
+  QVariantMap settings = promptForSettings(storage);
+
+  Storage::State storageState = storage->init(settings);
+  switch(storageState) {
+  case Storage::IsReady:
+    saveBackendSettings(backend, settings);
+    qWarning() << "Switched backend to:" << qPrintable(backend);
+    qWarning() << "Backend already initialized. Skipping Migration";
+    return true;
+  case Storage::NotAvailable:
+    qCritical() << "Backend is not available:" << qPrintable(backend);
+    return false;
+  case Storage::NeedsSetup:
+    if(!storage->setup(settings)) {
+      qWarning() << qPrintable(QString("Core::selectBackend(): unable to setup backend: %1").arg(backend));
+      return false;
+    }
+
+    if(storage->init(settings) != Storage::IsReady) {
+      qWarning() << qPrintable(QString("Core::migrateBackend(): unable to initialize backend: %1").arg(backend));
+      return false;
+    }
+
+    saveBackendSettings(backend, settings);
+    qWarning() << "Switched backend to:" << qPrintable(backend);
+    break;
+  }
+
+  // let's see if we have a current storage object we can migrate from
+  AbstractSqlMigrationReader *reader = getMigrationReader(_storage);
+  AbstractSqlMigrationWriter *writer = getMigrationWriter(storage);
+  if(reader && writer) {
+    qDebug() << qPrintable(QString("Migrating Storage backend %1 to %2...").arg(_storage->displayName(), storage->displayName()));
+    delete _storage;
+    _storage = 0;
+    delete storage;
+    storage = 0;
+    if(reader->migrateTo(writer)) {
+      qDebug() << "Migration finished!";
+      saveBackendSettings(backend, settings);
+      return true;
+    }
+    return false;
+    qWarning() << qPrintable(QString("Core::migrateDb(): unable to migrate storage backend! (No migration writer for %1)").arg(backend));
+  }
+
+  // inform the user why we cannot merge
+  if(!_storage) {
+    qWarning() << "No currently active backend. Skipping migration.";
+  } else if(!reader) {
+    qWarning() << "Currently active backend does not support migration:" << qPrintable(_storage->displayName());
+  }
+  if(writer) {
+    qWarning() << "New backend does not support migration:" << qPrintable(backend);
+  }
+
+  // so we were unable to merge, but let's create a user \o/
+  _storage = storage;
+  createUser();
+  return true;
+}
+
+void Core::createUser() {
+  QTextStream out(stdout);
+  QTextStream in(stdin);
+  out << "Add a new user:" << endl;
+  out << "Username: ";
+  out.flush();
+  QString username = in.readLine().trimmed();
+
+  disableStdInEcho();
+  out << "Password: ";
+  out.flush();
+  QString password = in.readLine().trimmed();
+  out << endl;
+  out << "Repeat Password: ";
+  out.flush();
+  QString password2 = in.readLine().trimmed();
+  out << endl;
+  enableStdInEcho();
+
+  if(password != password2) {
+    qWarning() << "Passwords don't match!";
+    return;
+  }
+  if(password.isEmpty()) {
+    qWarning() << "Password is empty!";
+    return;
+  }
+
+  if(_storage->addUser(username, password).isValid()) {
+    out << "Added user " << username << " successfully!" << endl;
+  } else {
+    qWarning() << "Unable to add user:" << qPrintable(username);
+  }
+}
+
+void Core::changeUserPass(const QString &username) {
+  QTextStream out(stdout);
+  QTextStream in(stdin);
+  UserId userId = _storage->getUserId(username);
+  if(!userId.isValid()) {
+    out << "User " << username << " does not exist." << endl;
+    return;
+  }
+
+  out << "Change password for user: " << username << endl;
+
+  disableStdInEcho();
+  out << "New Password: ";
+  out.flush();
+  QString password = in.readLine().trimmed();
+  out << endl;
+  out << "Repeat Password: ";
+  out.flush();
+  QString password2 = in.readLine().trimmed();
+  out << endl;
+  enableStdInEcho();
+
+  if(password != password2) {
+    qWarning() << "Passwords don't match!";
+    return;
+  }
+  if(password.isEmpty()) {
+    qWarning() << "Password is empty!";
+    return;
+  }
+
+  if(_storage->updateUser(userId, password)) {
+    out << "Password changed successfuly!" << endl;
+  } else {
+    qWarning() << "Failed to change password!";
+  }
+}
+
+AbstractSqlMigrationReader *Core::getMigrationReader(Storage *storage) {
+  if(!storage)
+    return 0;
+
+  AbstractSqlStorage *sqlStorage = qobject_cast<AbstractSqlStorage *>(storage);
+  if(!sqlStorage) {
+    qDebug() << "Core::migrateDb(): only SQL based backends can be migrated!";
+    return 0;
+  }
+
+  return sqlStorage->createMigrationReader();
+}
+
+AbstractSqlMigrationWriter *Core::getMigrationWriter(Storage *storage) {
+  if(!storage)
+    return 0;
+
+  AbstractSqlStorage *sqlStorage = qobject_cast<AbstractSqlStorage *>(storage);
+  if(!sqlStorage) {
+    qDebug() << "Core::migrateDb(): only SQL based backends can be migrated!";
+    return 0;
+  }
+
+  return sqlStorage->createMigrationWriter();
+}
+
+void Core::saveBackendSettings(const QString &backend, const QVariantMap &settings) {
+  QVariantMap dbsettings;
+  dbsettings["Backend"] = backend;
+  dbsettings["ConnectionProperties"] = settings;
+  CoreSettings().setStorageSettings(dbsettings);
+}
+
+QVariantMap Core::promptForSettings(const Storage *storage) {
+  QVariantMap settings;
+
+  QStringList keys = storage->setupKeys();
+  if(keys.isEmpty())
+    return settings;
+
+  QTextStream out(stdout);
+  QTextStream in(stdin);
+  out << "Default values are in brackets" << endl;
+
+  QVariantMap defaults = storage->setupDefaults();
+  QString value;
+  foreach(QString key, keys) {
+    QVariant val;
+    if(defaults.contains(key)) {
+      val = defaults[key];
+    }
+    out << key;
+    if(!val.toString().isEmpty()) {
+      out << " (" << val.toString() << ")";
+    }
+    out << ": ";
+    out.flush();
+
+    bool noEcho = QString("password").toLower().startsWith(key.toLower());
+    if(noEcho) {
+      disableStdInEcho();
+    }
+    value = in.readLine().trimmed();
+    if(noEcho) {
+      out << endl;
+      enableStdInEcho();
+    }
+
+    if(!value.isEmpty()) {
+      switch(defaults[key].type()) {
+      case QVariant::Int:
+	val = QVariant(value.toInt());
+	break;
+      default:
+	val = QVariant(value);
+      }
+    }
+    settings[key] = val;
+  }
+  return settings;
+}
+
+
+#ifdef Q_OS_WIN32
+void Core::stdInEcho(bool on) {
+  HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD mode = 0;
+  GetConsoleMode(hStdin, &mode);
+  if(on)
+    mode |= ENABLE_ECHO_INPUT;
+  else
+    mode &= ~ENABLE_ECHO_INPUT;
+  SetConsoleMode(hStdin, mode);
+}
+#else
+void Core::stdInEcho(bool on) {
+  termios t;
+  tcgetattr(STDIN_FILENO, &t);
+  if(on)
+    t.c_lflag |= ECHO;
+  else
+    t.c_lflag &= ~ECHO;
+  tcsetattr(STDIN_FILENO, TCSANOW, &t);
+}
+#endif /* Q_OS_WIN32 */

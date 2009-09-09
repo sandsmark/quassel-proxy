@@ -34,13 +34,8 @@ GeneralSettingsPage::GeneralSettingsPage(QWidget *parent)
   ui.macOnly->hide();
 #endif
 
-#ifdef Q_WS_WIN
-  ui.minimizeOnMinimize->hide();
-#endif
-
   connect(ui.useSystemTrayIcon, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
   connect(ui.showSystemTrayIcon, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
-  connect(ui.minimizeOnMinimize, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
   connect(ui.minimizeOnClose, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
 
   connect(ui.userNoticesInDefaultBuffer, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
@@ -54,10 +49,6 @@ GeneralSettingsPage::GeneralSettingsPage(QWidget *parent)
   connect(ui.errorMsgsInDefaultBuffer, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
   connect(ui.errorMsgsInStatusBuffer, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
   connect(ui.errorMsgsInCurrentBuffer, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
-
-  connect(ui.displayTopicInTooltip, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
-  connect(ui.mouseWheelChangesBuffers, SIGNAL(clicked(bool)), this, SLOT(widgetHasChanged()));
-  connect(ui.completionSuffix, SIGNAL(textEdited(const QString&)), this, SLOT(widgetHasChanged()));
 }
 
 bool GeneralSettingsPage::hasDefaults() const {
@@ -67,7 +58,6 @@ bool GeneralSettingsPage::hasDefaults() const {
 void GeneralSettingsPage::defaults() {
   ui.useSystemTrayIcon->setChecked(true);
   ui.showSystemTrayIcon->setChecked(true);
-  ui.minimizeOnMinimize->setChecked(false);
   ui.minimizeOnClose->setChecked(false);
 
   ui.userNoticesInDefaultBuffer->setChecked(true);
@@ -82,11 +72,6 @@ void GeneralSettingsPage::defaults() {
   ui.errorMsgsInStatusBuffer->setChecked(false);
   ui.errorMsgsInCurrentBuffer->setChecked(false);
 
-  ui.displayTopicInTooltip->setChecked(false);
-  ui.mouseWheelChangesBuffers->setChecked(false);
-
-  ui.completionSuffix->setText(": ");
-
   widgetHasChanged();
 }
 
@@ -98,14 +83,8 @@ void GeneralSettingsPage::load() {
   ui.useSystemTrayIcon->setChecked(settings["UseSystemTrayIcon"].toBool());
   ui.showSystemTrayIcon->setChecked(settings["UseSystemTrayIcon"].toBool());
 
-  settings["MinimizeOnMinimize"] = qtuiSettings.value("MinimizeOnMinimize", QVariant(false));
-  ui.minimizeOnMinimize->setChecked(settings["MinimizeOnMinimize"].toBool());
-
   settings["MinimizeOnClose"] = qtuiSettings.value("MinimizeOnClose", QVariant(false));
   ui.minimizeOnClose->setChecked(settings["MinimizeOnClose"].toBool());
-
-  settings["MouseWheelChangesBuffers"] = uiSettings.value("MouseWheelChangesBuffers", QVariant(false));
-  ui.mouseWheelChangesBuffers->setChecked(settings["MouseWheelChangesBuffers"].toBool());
 
   // bufferSettings:
   BufferSettings bufferSettings;
@@ -124,14 +103,6 @@ void GeneralSettingsPage::load() {
   SettingsPage::load(ui.errorMsgsInStatusBuffer, redirectTarget & BufferSettings::StatusBuffer);
   SettingsPage::load(ui.errorMsgsInCurrentBuffer, redirectTarget & BufferSettings::CurrentBuffer);
 
-
-  settings["DisplayTopicInTooltip"] = bufferSettings.value("DisplayTopicInTooltip", QVariant(false));
-  ui.displayTopicInTooltip->setChecked(settings["DisplayTopicInTooltip"].toBool());
-
-  // inputline settings
-  settings["CompletionSuffix"] = uiSettings.value("CompletionSuffix", QString(": "));
-  ui.completionSuffix->setText(settings["CompletionSuffix"].toString());
-
   setChangedState(false);
 }
 
@@ -142,11 +113,7 @@ void GeneralSettingsPage::save() {
 #else
   qtuiSettings.setValue("UseSystemTrayIcon", ui.useSystemTrayIcon->isChecked());
 #endif
-  qtuiSettings.setValue("MinimizeOnMinimize",  ui.minimizeOnMinimize->isChecked());
   qtuiSettings.setValue("MinimizeOnClose", ui.minimizeOnClose->isChecked());
-
-  UiSettings uiSettings;
-  uiSettings.setValue("MouseWheelChangesBuffers", ui.mouseWheelChangesBuffers->isChecked());
 
   BufferSettings bufferSettings;
   int redirectTarget = 0;
@@ -176,11 +143,6 @@ void GeneralSettingsPage::save() {
     redirectTarget |= BufferSettings::CurrentBuffer;
   bufferSettings.setErrorMsgsTarget(redirectTarget);
 
-  bufferSettings.setValue("DisplayTopicInTooltip", ui.displayTopicInTooltip->isChecked());
-
-  uiSettings.setValue("CompletionSuffix", ui.completionSuffix->text());
-
-
   load();
   setChangedState(false);
 }
@@ -196,7 +158,6 @@ bool GeneralSettingsPage::testHasChanged() {
 #else
   if(settings["UseSystemTrayIcon"].toBool() != ui.useSystemTrayIcon->isChecked()) return true;
 #endif
-  if(settings["MinimizeOnMinimize"].toBool() != ui.minimizeOnMinimize->isChecked()) return true;
   if(settings["MinimizeOnClose"].toBool() != ui.minimizeOnClose->isChecked()) return true;
 
   if(SettingsPage::hasChanged(ui.userNoticesInStatusBuffer)) return true;
@@ -210,11 +171,6 @@ bool GeneralSettingsPage::testHasChanged() {
   if(SettingsPage::hasChanged(ui.errorMsgsInStatusBuffer)) return true;
   if(SettingsPage::hasChanged(ui.errorMsgsInDefaultBuffer)) return true;
   if(SettingsPage::hasChanged(ui.errorMsgsInCurrentBuffer)) return true;
-
-  if(settings["DisplayTopicInTooltip"].toBool() != ui.displayTopicInTooltip->isChecked()) return true;
-  if(settings["MouseWheelChangesBuffers"].toBool() != ui.mouseWheelChangesBuffers->isChecked()) return true;
-
-  if(settings["CompletionSuffix"].toString() != ui.completionSuffix->text()) return true;
 
   return false;
 }

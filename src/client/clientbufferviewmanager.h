@@ -22,9 +22,12 @@
 #define CLIENTBUFFERVIEWMANAGER_H
 
 #include "bufferviewmanager.h"
+
 class ClientBufferViewConfig;
+class BufferViewOverlay;
 
 class ClientBufferViewManager : public BufferViewManager {
+  SYNCABLE_OBJECT
   Q_OBJECT
 
 public:
