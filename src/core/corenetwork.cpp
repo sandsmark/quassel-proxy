@@ -44,7 +44,6 @@ CoreNetwork::CoreNetwork(const NetworkId &networkid, CoreSession *session)
 
     _lastPingTime(0),
     _pingCount(0)
-    _pingCount(0),
 
 {
   _autoReconnectTimer.setSingleShot(true);

@@ -32,7 +32,6 @@
 
 AppearanceSettingsPage::AppearanceSettingsPage(QWidget *parent)
   : SettingsPage(tr("Interface"), QString(), parent)
-  _fontsChanged(false)
 {
   ui.setupUi(this);
   initAutoWidgets();
@@ -73,10 +72,6 @@ void AppearanceSettingsPage::defaults() {
   ui.styleComboBox->setCurrentIndex(0);
 
   SettingsPage::defaults();
-
-  ui.showWebPreview->setChecked(true);
-  ui.showUserStateIcons->setChecked(true);
-
   widgetHasChanged();
 }
 
