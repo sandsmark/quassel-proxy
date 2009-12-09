@@ -36,11 +36,11 @@ IrcChannel::IrcChannel(const QString &channelname, Network *network)
     _initialized(false),
     _name(channelname),
     _topic(QString()),
-    network(network),
+    _network(network),
     _codecForEncoding(0),
     _codecForDecoding(0)
 {
-  setObjectName(QString::number(network->networkId().toInt()) + "/" +  channelname);
+  setObjectName(QString::number(_network->networkId().toInt()) + "/" +  channelname);
 }
 
 IrcChannel::~IrcChannel() {
@@ -80,7 +80,7 @@ QString IrcChannel::userModes(IrcUser *ircuser) const {
 }
 
 QString IrcChannel::userModes(const QString &nick) const {
-  return userModes(network->ircUser(nick));
+  return userModes(_network->ircUser(nick));
 }
 
 void IrcChannel::setCodecForEncoding(const QString &name) {
@@ -100,7 +100,7 @@ void IrcChannel::setCodecForDecoding(QTextCodec *codec) {
 }
 
 QString IrcChannel::decodeString(const QByteArray &text) const {
-  if(!codecForDecoding()) return network->decodeString(text);
+  if(!codecForDecoding()) return _network->decodeString(text);
   return ::decodeString(text, _codecForDecoding);
 }
 
@@ -108,7 +108,7 @@ QByteArray IrcChannel::encodeString(const QString &string) const {
   if(codecForEncoding()) {
     return _codecForEncoding->fromUnicode(string);
   }
-  return network->encodeString(string);
+  return _network->encodeString(string);
 }
 
 // ====================
@@ -169,7 +169,7 @@ void IrcChannel::joinIrcUsers(const QList<IrcUser *> &users, const QStringList &
 void IrcChannel::joinIrcUsers(const QStringList &nicks, const QStringList &modes) {
   QList<IrcUser *> users;
   foreach(QString nick, nicks)
-    users << network->newIrcUser(nick);
+    users << _network->newIrcUser(nick);
   joinIrcUsers(users, modes);
 }
 		      
@@ -190,7 +190,7 @@ void IrcChannel::part(IrcUser *ircuser) {
     disconnect(ircuser, 0, this, 0);
     emit ircUserParted(ircuser);
     
-    if(network->isMe(ircuser) || _userModes.isEmpty()) {
+    if(_network->isMe(ircuser) || _userModes.isEmpty()) {
       // in either case we're no longer in the channel
       //  -> clean up the channel and destroy it
       QList<IrcUser *> users = _userModes.keys();
@@ -200,13 +200,13 @@ void IrcChannel::part(IrcUser *ircuser) {
 	user->partChannel(this);
       }
       emit parted();
-      network->removeIrcChannel(this);
+      _network->removeIrcChannel(this);
     }
   }
 }
 
 void IrcChannel::part(const QString &nick) {
-  part(network->ircUser(nick));
+  part(_network->ircUser(nick));
 }
 
 // SET USER MODE
@@ -220,7 +220,7 @@ void IrcChannel::setUserModes(IrcUser *ircuser, const QString &modes) {
 }
 
 void IrcChannel::setUserModes(const QString &nick, const QString &modes) {
-  setUserModes(network->ircUser(nick), modes);
+  setUserModes(_network->ircUser(nick), modes);
 }
 
 // ADD USER MODE
@@ -238,7 +238,7 @@ void IrcChannel::addUserMode(IrcUser *ircuser, const QString &mode) {
 }
 
 void IrcChannel::addUserMode(const QString &nick, const QString &mode) {
-  addUserMode(network->ircUser(nick), mode);
+  addUserMode(_network->ircUser(nick), mode);
 }
 
 // REMOVE USER MODE
@@ -255,7 +255,7 @@ void IrcChannel::removeUserMode(IrcUser *ircuser, const QString &mode) {
 }
 
 void IrcChannel::removeUserMode(const QString &nick, const QString &mode) {
-  removeUserMode(network->ircUser(nick), mode);
+  removeUserMode(_network->ircUser(nick), mode);
 }
 
 // INIT SET USER MODES
@@ -274,7 +274,7 @@ void IrcChannel::initSetUserModes(const QVariantMap &usermodes) {
   QStringList modes;
   QVariantMap::const_iterator iter = usermodes.constBegin();
   while(iter != usermodes.constEnd()) {
-    users << network->newIrcUser(iter.key());
+    users << _network->newIrcUser(iter.key());
     modes << iter.value().toString();
     iter++;
   }
@@ -409,7 +409,7 @@ void IrcChannel::ircUserNickSet(QString nick) {
 // NOTE: the behavior of addChannelMode and removeChannelMode depends on the type of mode
 // see list above for chanmode types
 void IrcChannel::addChannelMode(const QChar &mode, const QString &value) {
-  Network::ChannelModeType modeType = network->channelModeType(mode);
+  Network::ChannelModeType modeType = _network->channelModeType(mode);
 
   switch(modeType) {
   case Network::NOT_A_CHANMODE:
@@ -437,7 +437,7 @@ void IrcChannel::addChannelMode(const QChar &mode, const QString &value) {
 }
 
 void IrcChannel::removeChannelMode(const QChar &mode, const QString &value) {
-  Network::ChannelModeType modeType = network->channelModeType(mode);
+  Network::ChannelModeType modeType = _network->channelModeType(mode);
 
   switch(modeType) {
   case Network::NOT_A_CHANMODE:
@@ -463,7 +463,7 @@ void IrcChannel::removeChannelMode(const QChar &mode, const QString &value) {
 }
 
 bool IrcChannel::hasMode(const QChar &mode) const {
-  Network::ChannelModeType modeType = network->channelModeType(mode);
+  Network::ChannelModeType modeType = _network->channelModeType(mode);
 
   switch(modeType) {
   case Network::NOT_A_CHANMODE:
@@ -482,7 +482,7 @@ bool IrcChannel::hasMode(const QChar &mode) const {
 }
 
 QString IrcChannel::modeValue(const QChar &mode) const {
-  Network::ChannelModeType modeType = network->channelModeType(mode);
+  Network::ChannelModeType modeType = _network->channelModeType(mode);
 
   switch(modeType) {
   case Network::B_CHANMODE:
@@ -502,7 +502,7 @@ QString IrcChannel::modeValue(const QChar &mode) const {
 }
 
 QStringList IrcChannel::modeValueList(const QChar &mode) const {
-  Network::ChannelModeType modeType = network->channelModeType(mode);
+  Network::ChannelModeType modeType = _network->channelModeType(mode);
 
   switch(modeType) {
   case Network::A_CHANMODE:

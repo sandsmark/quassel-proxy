@@ -223,6 +223,7 @@ void AppearanceSettingsPage::widgetHasChanged() {
 bool AppearanceSettingsPage::testHasChanged() {
   if(ui.styleComboBox->currentIndex() != ui.styleComboBox->property("storedValue").toInt()) return true;
 
+
   if(selectedLocale() != QLocale()) return true; // QLocale() returns the default locale (manipulated via loadTranslation())
 
   if(SettingsPage::hasChanged(ui.userNoticesInStatusBuffer)) return true;

@@ -71,6 +71,8 @@ public:
   QString decodeString(const QByteArray &text) const;
   QByteArray encodeString(const QString &string) const;
 
+  inline Network* network(){ return _network; }
+  
 public slots:
   void setTopic(const QString &topic);
   void setPassword(const QString &password);
@@ -133,7 +135,7 @@ private:
 
   QHash<IrcUser *, QString> _userModes;
 
-  Network *network;
+  Network *_network;
 
   QTextCodec *_codecForEncoding;
   QTextCodec *_codecForDecoding;

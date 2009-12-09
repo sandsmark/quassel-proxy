@@ -19,11 +19,14 @@
  ***************************************************************************/
 
 #include <cstdlib>
+#define MAIN_CPP
 
 #ifdef BUILD_CORE
 #  include "coreapplication.h"
 #elif defined BUILD_QTUI
 #  include "qtuiapplication.h"
+#elif defined BUILD_PROXY
+#  include "proxyapplication.h"
 #elif defined BUILD_MONO
 #  include "monoapplication.h"
 
@@ -39,12 +42,6 @@
 #ifdef HAVE_KDE
 #  include <KAboutData>
 #  include "kcmdlinewrapper.h"
-#endif
-
-#if !defined(BUILD_CORE) && defined(STATIC)
-#include <QtPlugin>
-Q_IMPORT_PLUGIN(qjpeg)
-Q_IMPORT_PLUGIN(qgif)
 #endif
 
 #include "cliparser.h"
@@ -85,13 +82,6 @@ int main(int argc, char **argv) {
   // put shared client&core arguments here
   cliParser->addSwitch("debug",'d', "Enable debug output");
   cliParser->addSwitch("help",'h', "Display this help and exit");
-  cliParser->addSwitch("version", 'v', "Display version information");
-#ifdef BUILD_QTUI
-  cliParser->addOption("configdir <path>", 'c', "Specify the directory holding the client configuration");
-#else
-  cliParser->addOption("configdir <path>", 'c', "Specify the directory holding configuration files, the SQlite database and the SSL certificate");
-#endif
-  cliParser->addOption("datadir <path>", 0, "DEPRECATED - Use --configdir instead");
 
 #ifndef BUILD_CORE
   // put client-only arguments here
@@ -125,6 +115,8 @@ int main(int argc, char **argv) {
     QtUiApplication app(argc, argv);
 #  elif defined BUILD_MONO
     MonolithicApplication app(argc, argv);
+#  elif defined BUILD_PROXY
+    ProxyApplication app(argc, argv);
 #  endif
 
 #ifndef HAVE_KDE
