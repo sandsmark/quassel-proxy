@@ -13,7 +13,9 @@ set(SOURCES
   chatlinemodel.cpp
   channelinfo.cpp
   chatlinemodelitem.cpp
-  proxy.cpp
+  proxyconnection.cpp
+  proxyuser.cpp
+  protoconvert.cpp
   proxyapplication.cpp
   proxymessageprocessor.cpp
   connectionmanager.cpp
@@ -25,13 +27,15 @@ set(MOC_HDRS
   chatlinemodel.h
   channelinfo.h
   connectionmanager.h
-  proxy.h  
+  proxyconnection.h
+  proxyuser.h
   proxyapplication.h
   proxymessageprocessor.h
   prototools.h
 )
 
 set(HEADERS
+  protoconvert.h
 )
 
 WRAP_PROTO(PROTO_SRC protocol.proto)

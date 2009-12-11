@@ -1,0 +1,6 @@
+*~
+bld/*
+qtcreator-build/*
+*.orig
+*.rej
+

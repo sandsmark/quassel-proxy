@@ -26,7 +26,7 @@
 
 #include "client.h"
 #include "cliparser.h"
-#include "proxy.h"
+#include "proxyconnection.h"
 
 
 ProxyApplication::ProxyApplication(int &argc, char **argv)
@@ -38,6 +38,8 @@ ProxyApplication::ProxyApplication(int &argc, char **argv)
   nextSid=0;
   setDataDirPaths(findDataDirPaths());
   setRunMode(Quassel::ClientOnly);
+  coreHost="lekebilen.com";
+  corePort=4243;
 }
 
 bool ProxyApplication::init() {
@@ -99,23 +101,26 @@ void ProxyApplication::newConnection (){
     if(server->hasPendingConnections()){
         QTcpSocket *nextsock;
         while((nextsock=server->nextPendingConnection())!=NULL){
-            Proxy *p = new Proxy(nextsock,this);
-            //p->setSid(nextSid);
-            //proxies.insert(QString("Randusr%1").arg(nextSid),p);
-            //nextSid++;
+            ProxyConnection *pc = new ProxyConnection(nextsock,this);
         }
     }
 }
 
 ProxyApplication::~ProxyApplication() {
 }
-void ProxyApplication::removeSession(Proxy *snd){
-    proxies.remove(snd->getUsername());
+void ProxyApplication::removeSession(QString username){
+    proxyUsers.remove(username);
     snd->deleteLater();
 }
-void ProxyApplication::registerSession(Proxy *snd,quasselproxy::Packet pkg){
-    proxies.insert(fromStdStringUtf8(pkg.setup().username()),snd);
+void ProxyApplication::registerSession(QString username, ProxyUser *snd){
+    proxyUsers.insert(username,snd);
 }
-Proxy *ProxyApplication::getSession(QString username){
-    return proxies.value(username);
+ProxyUser *ProxyApplication::getSession(QString username){
+    return proxyUsers.value(username);
+}
+int ProxyApplication::getCorePort(){
+    return corePort;
+}
+QString ProxyApplication::getCoreHost(){
+    return coreHost;
 }

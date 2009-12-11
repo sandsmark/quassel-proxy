@@ -25,7 +25,8 @@
 
 #include <QPointer>
 #include <QByteArray>
-#include "proxy.h"
+#include "proxyconnection.h"
+#include "proxyuser.h"
 #include "quassel.h"
 
 class Proxy;
@@ -39,20 +40,24 @@ public:
   ProxyApplication(int &, char **);
   ~ProxyApplication();
   virtual bool init();
-  void removeSession(Proxy *proxy);
-  void registerSession(Proxy *proxy,quasselproxy::Packet);
-  Proxy *getSession(QString username);
- protected slots:
+  void removeSession(QString username);
+  void registerProxyUser(QString username,ProxyUser *proxy);
+  ProxyUser *getSession(QString username);
+  QString getCoreHost();
+  int getCorePort();
+
+protected slots:
 void newConnection ();
 private:
   bool _aboutToQuit;
   QPointer<QTcpServer> server;
   int nextSid;
   int port;
-  QMap<QString,QPointer<Proxy> > proxies;
+  QMap<QString,QPointer<ProxyUser> > proxyUsers;
   int outstandingBytes;
   QByteArray readTmp;
-
+  QString coreHost;
+  int corePort;
 };
 
 #endif

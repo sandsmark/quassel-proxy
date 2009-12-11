@@ -35,7 +35,7 @@ message SessionStatusChanged{
 message Message{
   optional uint32 msgid=1;//message id
   optional uint32 nid=2;//network id - if missing get from buffer with bid
-  optional uint32 uid=3;//sender user id (not unique accross sessions/networks)
+  optional string nick=3;//sender user id (i.e nick)
   optional uint32 bid=4;//buffer id - if missing use active buffer
   optional sint64 timestamp=5;
   
@@ -118,13 +118,15 @@ message Buffer{
   optional uint32 nid=2;
   optional uint32 gid=3;
   optional string name=4;
+  optional string topic=10;
 
-  optional uint32 queryUser=5;//reference to ircuser on this network
-  optional uint32 channel=6;//reference to irchannel on this network
+  optional uint32 queryUser=5;//reference to ircuser on this network - deprecated
+  optional uint32 channel=6;//reference to irchannel on this network - deprecated
 
   optional uint32 firstmsg=7;
   optional uint32 lastmsg=8;
   optional uint32 nummsgs=9;
+  
   
   optional bool update_bools=19;
 
