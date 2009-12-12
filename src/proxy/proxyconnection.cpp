@@ -36,34 +36,42 @@ ProxyConnection::ProxyConnection(QTcpSocket *client,ProxyApplication *app){
     activityChecker.setInterval(5000);
     connect(&activityChecker,SIGNAL(timeout()),this,SLOT(checkActivity()));
     activityChecker.start();
+    timebase=0;
     //setup.set_sessionid(sid);
 }
 ProxyConnection::~ProxyConnection(){
     activityChecker.stop();
     if(conn)
         conn->deregisterConnection(this);
-    delete conn;
+    //delete conn;
 }
 void ProxyConnection::connectUserSignals(){
     connect(conn,SIGNAL(recvMessage(const Message &)),this, SLOT(recvMessage(const Message &)));
     connect(conn,SIGNAL(backlogRecieved(BufferId,MsgId,MsgId,int,int,QVariantList)),this, SLOT(backlogRecieved(BufferId,MsgId,MsgId,int,int,QVariantList)));
     connect(conn,SIGNAL(bufferUpdated(BufferInfo)),this, SLOT(bufferUpdated(BufferInfo)));
     connect(conn,SIGNAL(updatePersistentInfo()),this,SLOT(updatePersistentInfo()));
+    connect(this,SIGNAL(sendInput(BufferInfo,QString)),conn,SIGNAL(sendInput(BufferInfo,QString)));
 }
 void ProxyConnection::syncComplete(){
   connectUserSignals();
   authenticatedWithCore=true;
   quasselproxy::Packet resp;
   resp.mutable_setup()->set_loggedin(true);
-  resp.mutable_setup()->set_timebase(QDateTime::currentDateTime().toTime_t());
-  timebase=resp.setup().timebase();
-
+  if(timebase==0){
+      resp.mutable_setup()->set_timebase(QDateTime::currentDateTime().toTime_t());
+      timebase=resp.setup().timebase();
+  }
+  printf("ID's:%d,%d\n",clientPersistentInfoVersion,conn->getSid());
   if(clientPersistentInfoVersion!=conn->getSid()){//send new persistent info etc.
+      clientPersistentInfoVersion=conn->getSid();
       generatePersistentInfo(&resp);
+      printf("Send info\n");
   }
   if(activeBuffer){//send new messages from active buffer
       generateActivateBufferPacket(activeBuffer,&resp,lastSendtMessage);
+      printf("Send active buffer\n");
   }
+  printf("Sync complete %d",clientPersistentInfoVersion);
   sendPacket(resp);
   //send buffer messages?
 }
@@ -72,6 +80,7 @@ void ProxyConnection::updatePersistentInfo(){
     quasselproxy::Packet resp;
     generatePersistentInfo(&resp);
     sendPacket(resp);
+    clientPersistentInfoVersion=conn->getSid();
 }
 void ProxyConnection::generatePersistentInfo(quasselproxy::Packet *resp){
   //respond to client, send setup, and all info.
@@ -84,6 +93,7 @@ void ProxyConnection::generatePersistentInfo(quasselproxy::Packet *resp){
   foreach(BufferInfo binfo,conn->getBufferInfos()->values()){
       convertBufferInfoToProto(&binfo,resp->add_buffers());
   }
+  resp->mutable_setup()->set_sessionid(clientPersistentInfoVersion);
 }
 void ProxyConnection::activateBuffer(quint32 newbid,quint32 lastSeenMsg){
     quasselproxy::Packet resp;
@@ -106,7 +116,7 @@ void ProxyConnection::generateActivateBufferPacket(quint32 newbid,quasselproxy::
     convertBufferInfoToProto(&binfo,resp->add_buffers());
     /*if(lastSendtMessage!=-1){//send BUF_MSG's messages in history, or until last seen msg - problems with asyncronous backlog fetcher
     }*/
-    printf("Send buffer change packet%d\n",binfo.type());
+    printf("Send buffer change packet%d:%d\n",binfo.type(),newbid);
     resp->mutable_statusinfo()->set_activbid(newbid);
 }
 
@@ -136,23 +146,11 @@ void ProxyConnection::recvMessage(const Message& msg){
 
 
 void ProxyConnection::bufferUpdated(BufferInfo info){
-    //FIXME: Only updates for visited buffers and where the person name is marked
-    if(conn->getBufferInfos()->contains(info.bufferId().toInt())){
-        printf("Updated buffer:%s,%d\n",info.bufferName().toUtf8().constData(),info.type());
-        if(!syncronizing&&!clientPause){
-            quasselproxy::Packet pkg;
-            convertBufferInfoToProto(&info,pkg.add_buffers());
-            sendPacket(pkg);
-        }//FIXME: add to queue on pause
-    }else{
-        conn->getBufferInfos()->insert(info.bufferId().toInt(),info);
-        printf("Added buffer:%s,%d,%d\n",info.bufferName().toUtf8().constData(),info.type(),info.bufferId().toInt());
-        if(!syncronizing&&clientPause){
-            quasselproxy::Packet pkg;
-            convertBufferInfoToProto(&info,pkg.add_buffers());
-            sendPacket(pkg);
-        }//FIXME: add to queue on pause
-    }
+    if(!syncronizing&&!clientPause){
+        quasselproxy::Packet pkg;
+        convertBufferInfoToProto(&info,pkg.add_buffers());
+        sendPacket(pkg);
+    }//FIXME: add to queue on pause
 }
 void ProxyConnection::disconnectedFromCore(){
     disconnect();
@@ -181,6 +179,7 @@ void ProxyConnection::authenticateClient(quasselproxy::Packet resp){
     ProxyUser *proxyUser=app->getSession(fromStdStringUtf8(resp.setup().username()));
     bool newsession=false;
     clientPersistentInfoVersion=resp.setup().sessionid();
+    printf("Clientid:%d\n",clientPersistentInfoVersion);
     if(proxyUser!=NULL){//existing session found
         if(!proxyUser->validateCreditals(resp.setup())){//not correct creditals
             quasselproxy::Packet spkg;
@@ -192,12 +191,18 @@ void ProxyConnection::authenticateClient(quasselproxy::Packet resp){
         }
         conn=proxyUser;
         conn->registerConnection(this);
+        printf("Exsiting session %s\n",resp.setup().username().c_str());
         syncComplete();
+        if(resp.setup().has_timebase()){
+            timebase=resp.setup().timebase();
+        }
     }else{
         conn=new ProxyUser(app);
-        conn->registerConnection(this);
+        conn->registerConnection(this);//resp.setup().username(),resp.setup().password(),this);
         conn->setCreditals(resp.setup());
+        app->registerSession(conn);//FIXME: Figure out a genious way to avoid dos by bad passwords
         conn->init();
+        printf("New session %s\n",resp.setup().username().c_str());
     }
 }
 void ProxyConnection::packetRecievedFromClient(quasselproxy::Packet pkg){
@@ -254,6 +259,7 @@ void ProxyConnection::packetRecievedFromClient(quasselproxy::Packet pkg){
     //check for messages to send
     for(int i=0;i<pkg.messages_size();i++){
         quasselproxy::Message msg=pkg.messages(i);
+        printf("Gotmsg:%s\n",msg.contents().c_str());
         if(!conn->getBufferInfos()->contains(msg.bid()))
             printf("Could not send message for id, id not found:%d\n",msg.bid());
         else
@@ -335,7 +341,7 @@ void ProxyConnection::sendPacket(quasselproxy::Packet pkg){
 void ProxyConnection::disconnect(){//Disconnect and destroy this session
     activityChecker.stop();
     if(client!=NULL && client->isOpen()){
-        ((QObject)this).disconnect(client,SIGNAL(disconnected()),this,SLOT(socketDisconnected()));
+        ((QObject)this).disconnect(client,SIGNAL(disconnected()),this,SLOT(disconnect()));
         ((QObject)this).disconnect(client,SIGNAL(readyRead()),this,SLOT(clientHasData()));
         client->disconnectFromHost();
         client->close();//FIXME:crash

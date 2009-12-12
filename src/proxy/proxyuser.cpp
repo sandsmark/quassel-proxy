@@ -58,7 +58,7 @@ void ProxyUser::init(){
     connect(conn, SIGNAL(connectionEstablished()), this, SLOT(connectedToCore()));
     connect(conn, SIGNAL(gotCoreSessionState(const QVariantMap&)), this, SLOT(gotCoreSessionState(const QVariantMap&)));
     connect(conn, SIGNAL(loginFailed(const QString &)), this, SLOT(loginFailed(const QString &)));
-    printf("Connecting\n");
+    printf("Connecting to %s:%d\n",app->getCoreHost().toUtf8().constData(),app->getCorePort());
 }
 
 void ProxyUser::gotCoreSessionState(const QVariantMap& sessionState){
@@ -78,9 +78,9 @@ void ProxyUser::gotCoreSessionState(const QVariantMap& sessionState){
   QVariantList bufferinfos = sessionState["BufferInfos"].toList();
   //NetworkModel *networkModel = Client::networkModel();
   //Q_ASSERT(networkModel);
-
+    printf("Add buffers\n");
   foreach(QVariant vinfo, bufferinfos)
-    bufferUpdated(vinfo.value<BufferInfo>());  // create BufferItems
+    bufferUpdatedPrivate(vinfo.value<BufferInfo>(),false);  // create BufferItems
 
   QVariantList networkids = sessionState["NetworkIds"].toList();
 
@@ -118,7 +118,7 @@ void ProxyUser::syncComplete(){
   p->attachSlot(SIGNAL(displayMsg(const Message &)), this, SIGNAL(recvMessage(const Message &)));
   //p->attachSlot(SIGNAL(displayStatusMsg(QString, QString)), this, SLOT(recvStatusMsg(QString, QString)));//unused
 
-  p->attachSlot(SIGNAL(bufferInfoUpdated(BufferInfo)), this, SLOT(bufferUpdated(BufferInfo)));
+  p->attachSlot(SIGNAL(bufferInfoUpdated(BufferInfo)), this, SLOT(bufferUpdatedPrivateSlot(BufferInfo)));
   p->attachSignal(this, SIGNAL(sendInput(BufferInfo, QString)));
   p->attachSignal(this, SIGNAL(requestNetworkStates()));
 
@@ -191,6 +191,22 @@ void ProxyUser::ircUserModesSet(IrcUser *ircuser, QString modes){
 void ProxyUser::identityRecieved(const IdentityId &id){
     printf("Id created%s\n",identities.value(id.toInt())->nicks().at(0).toUtf8().constData());
     updatePersistentInfoPrivate();
+}
+void ProxyUser::bufferUpdatedPrivateSlot(BufferInfo info){
+    bufferUpdatedPrivate(info,true);
+}
+void ProxyUser::bufferUpdatedPrivate(BufferInfo info,bool callConnections){
+    //FIXME: Only updates for visited buffers and where the person name is marked
+    if(bufferInfos.contains(info.bufferId().toInt())){
+        printf("Updated buffer:%s,%d\n",info.bufferName().toUtf8().constData(),info.type());
+    }else{
+
+        printf("Added buffer:%s,%d,%d\n",info.bufferName().toUtf8().constData(),info.type(),info.bufferId().toInt());
+    }
+    bufferInfos.insert(info.bufferId().toInt(),info);
+    if(callConnections){
+        bufferUpdated(info);
+    }
 }
 void ProxyUser::disconnectedFromCore(){
     //FIXME: Test that this is really called

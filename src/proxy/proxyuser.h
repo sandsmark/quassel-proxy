@@ -132,7 +132,10 @@ protected slots:
   //void checkActivity();
   //void socketDisconnected();
 //  void syncronizeNetwork(const QVariant net);
+private slots:
+  void bufferUpdatedPrivateSlot(BufferInfo);
 private:
+  void bufferUpdatedPrivate(BufferInfo,bool);
   void updatePersistentInfoPrivate();
   //static QPointer<Proxy> _instance;
   //ClientSyncer *syncer;

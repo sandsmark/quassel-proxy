@@ -83,13 +83,19 @@ int main(int argc, char **argv) {
   cliParser->addSwitch("debug",'d', "Enable debug output");
   cliParser->addSwitch("help",'h', "Display this help and exit");
 
-#ifndef BUILD_CORE
+#if defined(BUILD_QTUI) || defined(BUILD_MONO)
   // put client-only arguments here
   cliParser->addOption("qss <file.qss>", 0, "Load a custom application stylesheet");
   cliParser->addSwitch("debugbufferswitches", 0, "Enables debugging for bufferswitches");
   cliParser->addSwitch("debugmodel", 0, "Enables debugging for models");
 #endif
-#ifndef BUILD_QTUI
+#ifdef BUILD_PROXY
+  cliParser->addOption("listen <address>[,<address[,...]]>", 'c', "The address(es) proxy will listen on", "0.0.0.0,::");
+  cliParser->addOption("listen-port <port>",'x', "The port proxy will listen at", QString("4342"));
+  cliParser->addOption("address <address>",'a', "The address proxy will try to connect to the core at ", "127.0.0.1");
+  cliParser->addOption("port <port>",'p', "The port proxy will try to connect to the core at", QString("4242"));
+#endif
+#if defined(BUILD_MONO) || defined(BUILD_CORE)
   // put core-only arguments here
   cliParser->addOption("listen <address>[,<address[,...]]>", 0, "The address(es) quasselcore will listen on", "0.0.0.0,::");
   cliParser->addOption("port <port>",'p', "The port quasselcore will listen at", QString("4242"));

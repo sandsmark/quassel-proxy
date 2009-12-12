@@ -23,6 +23,7 @@
 
 #include <QStringList>
 #include <QTcpServer>
+#include <QtDebug>
 
 #include "client.h"
 #include "cliparser.h"
@@ -34,12 +35,12 @@ ProxyApplication::ProxyApplication(int &argc, char **argv)
     Quassel(),
     _aboutToQuit(false)
 {
-  port=4342;
+    corePort=0;
+    port=0;
+
   nextSid=0;
   setDataDirPaths(findDataDirPaths());
   setRunMode(Quassel::ClientOnly);
-  coreHost="lekebilen.com";
-  corePort=4243;
 }
 
 bool ProxyApplication::init() {
@@ -78,6 +79,10 @@ bool ProxyApplication::init() {
         qWarning() << "*** Migration completed.\n\n";
       }
     }
+      coreHost=Quassel::optionValue("address");
+      corePort=Quassel::optionValue("port").toInt();
+      port = Quassel::optionValue("listen-port").toInt();
+      listenAddress=Quassel::optionValue("listen");
 
     // MIGRATION end
 
@@ -87,16 +92,87 @@ bool ProxyApplication::init() {
     // session resume
     //Proxy *proxy = new Proxy();
     //proxy->init();
-    server=new QTcpServer();
-    connect(server,SIGNAL(newConnection()),this,SLOT(newConnection()));
-    server->listen(QHostAddress::Any,port);
 
+    if(!startListening()){
+        return false;
+    }
     printf("Inited\n");
     return true;
   }
   printf("Noinit\n");
   return false;
 }
+
+bool ProxyApplication::startListening() {//copyed from core.cpp
+  server=new QTcpServer();
+  server6=new QTcpServer();
+  connect(server,SIGNAL(newConnection()),this,SLOT(newConnection()));
+  connect(server6,SIGNAL(newConnection()),this,SLOT(newConnection()));
+
+  bool success = false;
+
+  const QStringList listen_list = listenAddress.split(",", QString::SkipEmptyParts);
+  if(listen_list.size() > 0) {
+    foreach (const QString listen_term, listen_list) {  // TODO: handle multiple interfaces for same TCP version gracefully
+      QHostAddress addr;
+      if(!addr.setAddress(listen_term)) {
+        qCritical() << qPrintable(
+          tr("Invalid listen address %1")
+            .arg(listen_term)
+        );
+      } else {
+        switch(addr.protocol()) {
+          case QAbstractSocket::IPv4Protocol:
+            if(server->listen(addr, port)) {
+              /*qInfo() << qPrintable(
+                tr("Listening for GUI clients on IPv4 %1 port %2 using protocol version %3")
+                  .arg(addr.toString())
+                  .arg(server->serverPort())                  .arg(Quassel::buildInfo().protocolVersion)
+              );*/
+              success = true;
+            } else
+              qWarning() << qPrintable(
+                tr("Could not open IPv4 interface %1:%2: %3")
+                  .arg(addr.toString())
+                  .arg(port)
+                  .arg(server->errorString()));
+            break;
+          case QAbstractSocket::IPv6Protocol:
+            if(server6->listen(addr, port)) {
+              /*qInfo() << qPrintable(
+                tr("Listening for GUI clients on IPv6 %1 port %2 using protocol version %3")
+                  .arg(addr.toString())
+                  .arg(server->serverPort())
+                  .arg(Quassel::buildInfo().protocolVersion)
+              );*/
+              success = true;
+            } else {
+              // if v4 succeeded on Any, the port will be already in use - don't display the error then
+              // FIXME: handle this more sanely, make sure we can listen to both v4 and v6 by default!
+              if(!success || server6->serverError() != QAbstractSocket::AddressInUseError)
+                qWarning() << qPrintable(
+                  tr("Could not open IPv6 interface %1:%2: %3")
+                  .arg(addr.toString())
+                  .arg(port)
+                  .arg(server->errorString()));
+            }
+            break;
+          default:
+            qCritical() << qPrintable(
+              tr("Invalid listen address %1, unknown network protocol")
+                  .arg(listen_term)
+            );
+            break;
+        }
+      }
+    }
+  }
+  if(!success)
+    qCritical() << qPrintable(tr("Could not open any network interfaces to listen on!"));
+
+  return success;
+}
+
 void ProxyApplication::newConnection (){
     if(server->hasPendingConnections()){
         QTcpSocket *nextsock;
@@ -104,16 +180,28 @@ void ProxyApplication::newConnection (){
             ProxyConnection *pc = new ProxyConnection(nextsock,this);
         }
     }
+    if(server6->hasPendingConnections()){
+        QTcpSocket *nextsock;
+        while((nextsock=server6->nextPendingConnection())!=NULL){
+            ProxyConnection *pc = new ProxyConnection(nextsock,this);
+        }
+    }
+
 }
 
 ProxyApplication::~ProxyApplication() {
 }
 void ProxyApplication::removeSession(ProxyUser *snd){
+    printf("Removession %s\n",snd->getUsername().toUtf8().constData());
     proxyUsers.remove(snd->getUsername());
     snd->deleteLater();
 }
-void ProxyApplication::registerSession(QString username, ProxyUser *snd){
-    proxyUsers.insert(username,snd);
+void ProxyApplication::registerSession( ProxyUser *snd){
+    printf("TryRegsession %s\n",snd->getUsername().toUtf8().constData());
+    if(!proxyUsers.contains(snd->getUsername())){
+        proxyUsers.insert(snd->getUsername(),snd);
+        printf("Regsession %s\n",snd->getUsername().toUtf8().constData());
+    }
 }
 ProxyUser *ProxyApplication::getSession(QString username){
     return proxyUsers.value(username);

@@ -1,5 +1,5 @@
 # This is the cmake-based build system for Quassel IRC.
-#-DWANT_PROXY=ON -DWANT_MONO=OFF -DWANT_QTCLIENT=OFF -DWANT_CORE=OFF
+#-DWANT_PROXY=ON -DWANT_MONO=OFF -DWANT_QTCLIENT=OFF -DWANT_CORE=OFF -DCMAKE_BUILD_TYPE=debug
 
 # You may pass various options to cmake:
 # -DWANT_(CORE|QTCLIENT|MONO)=(ON|OFF)

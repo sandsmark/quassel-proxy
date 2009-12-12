@@ -40,8 +40,9 @@ public:
   ProxyApplication(int &, char **);
   ~ProxyApplication();
   virtual bool init();
+  bool startListening();
   void removeSession(ProxyUser *snd);
-  void registerSession(QString username,ProxyUser *proxy);
+  void registerSession(ProxyUser *proxy);
   ProxyUser *getSession(QString username);
   QString getCoreHost();
   int getCorePort();
@@ -51,7 +52,9 @@ void newConnection ();
 private:
   bool _aboutToQuit;
   QPointer<QTcpServer> server;
+  QPointer<QTcpServer> server6;
   int nextSid;
+  QString listenAddress;
   int port;
   QMap<QString,QPointer<ProxyUser> > proxyUsers;
   int outstandingBytes;
