@@ -3,4 +3,4 @@ bld/*
 qtcreator-build/*
 *.orig
 *.rej
-
+*.txt.user

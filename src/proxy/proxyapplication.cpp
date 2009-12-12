@@ -108,8 +108,8 @@ void ProxyApplication::newConnection (){
 
 ProxyApplication::~ProxyApplication() {
 }
-void ProxyApplication::removeSession(QString username){
-    proxyUsers.remove(username);
+void ProxyApplication::removeSession(ProxyUser *snd){
+    proxyUsers.remove(snd->getUsername());
     snd->deleteLater();
 }
 void ProxyApplication::registerSession(QString username, ProxyUser *snd){

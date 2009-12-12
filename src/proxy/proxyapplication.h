@@ -40,8 +40,8 @@ public:
   ProxyApplication(int &, char **);
   ~ProxyApplication();
   virtual bool init();
-  void removeSession(QString username);
-  void registerProxyUser(QString username,ProxyUser *proxy);
+  void removeSession(ProxyUser *snd);
+  void registerSession(QString username,ProxyUser *proxy);
   ProxyUser *getSession(QString username);
   QString getCoreHost();
   int getCorePort();

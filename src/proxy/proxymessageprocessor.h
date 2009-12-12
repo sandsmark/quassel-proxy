@@ -24,20 +24,20 @@
 #include "abstractmessageprocessor.h"
 #include "message.h"
 #include "networkmodel.h"
-class Proxy;
+class ProxyUser;
 
 class ProxyMessageProcessor : public AbstractMessageProcessor {
   Q_OBJECT
 
 public:
-  ProxyMessageProcessor(QObject *parent,Proxy *proxy);
+  ProxyMessageProcessor(QObject *parent,ProxyUser *proxy);
   virtual void reset();
 
 public slots:
   virtual void process(Message &msg);
   virtual void process(QList<Message> &msgs);
 protected:
-  Proxy *proxy;
+  ProxyUser *proxy;
 };
 
 #endif

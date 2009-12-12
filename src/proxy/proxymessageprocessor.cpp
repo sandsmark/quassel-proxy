@@ -1,6 +1,6 @@
 #include "proxymessageprocessor.h"
-#include "proxy.h"
-ProxyMessageProcessor::ProxyMessageProcessor(QObject *parent,Proxy *proxy):AbstractMessageProcessor(parent){
+#include "proxyuser.h"
+ProxyMessageProcessor::ProxyMessageProcessor(QObject *parent,ProxyUser *proxy):AbstractMessageProcessor(parent){
   this->proxy=proxy;
 }
 void ProxyMessageProcessor::reset(){
