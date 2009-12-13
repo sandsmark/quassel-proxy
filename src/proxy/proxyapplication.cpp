@@ -29,6 +29,8 @@
 #include "cliparser.h"
 #include "proxyconnection.h"
 
+#include <stdlib.h>
+#include <time.h>
 
 ProxyApplication::ProxyApplication(int &argc, char **argv)
   : QCoreApplication(argc, argv),
@@ -45,7 +47,7 @@ ProxyApplication::ProxyApplication(int &argc, char **argv)
 
 bool ProxyApplication::init() {
   if(Quassel::init()) {
-
+    srand ( time(NULL) );
     // FIXME: MIGRATION 0.3 -> 0.4: Move database and core config to new location
     // Move settings, note this does not delete the old files
 #ifdef Q_WS_MAC

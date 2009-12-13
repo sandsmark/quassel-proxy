@@ -41,6 +41,14 @@ ProxyConnection::ProxyConnection(QTcpSocket *client,ProxyApplication *app){
 }
 ProxyConnection::~ProxyConnection(){
     activityChecker.stop();
+    if(client!=NULL && client->isOpen()){
+        ((QObject)this).disconnect(client,SIGNAL(disconnected()),this,SLOT(disconnect()));
+        ((QObject)this).disconnect(client,SIGNAL(readyRead()),this,SLOT(clientHasData()));
+        client->disconnectFromHost();
+        client->close();//FIXME:crash
+        delete(client);
+        client=NULL;
+    }
     if(conn)
         conn->deregisterConnection(this);
     //delete conn;
@@ -63,9 +71,10 @@ void ProxyConnection::syncComplete(){
   }
   printf("ID's:%d,%d\n",clientPersistentInfoVersion,conn->getSid());
   if(clientPersistentInfoVersion!=conn->getSid()){//send new persistent info etc.
-      clientPersistentInfoVersion=conn->getSid();
       generatePersistentInfo(&resp);
       printf("Send info\n");
+  }else{
+      resp.mutable_setup()->set_sessionid(clientPersistentInfoVersion);
   }
   if(activeBuffer){//send new messages from active buffer
       generateActivateBufferPacket(activeBuffer,&resp,lastSendtMessage);
@@ -80,10 +89,11 @@ void ProxyConnection::updatePersistentInfo(){
     quasselproxy::Packet resp;
     generatePersistentInfo(&resp);
     sendPacket(resp);
-    clientPersistentInfoVersion=conn->getSid();
+
 }
 void ProxyConnection::generatePersistentInfo(quasselproxy::Packet *resp){
   //respond to client, send setup, and all info.
+  clientPersistentInfoVersion=conn->getSid();
   foreach(Identity *id,conn->getIdentities()->values()){
       convertIdentity(id,resp->add_identities());
   }
@@ -91,7 +101,12 @@ void ProxyConnection::generatePersistentInfo(quasselproxy::Packet *resp){
       convertNetworkToProto(network,resp->add_networks());
   }
   foreach(BufferInfo binfo,conn->getBufferInfos()->values()){
-      convertBufferInfoToProto(&binfo,resp->add_buffers());
+      quasselproxy::Buffer *bproto=resp->add_buffers();
+      convertBufferInfoToProto(&binfo,bproto);
+      if(conn->getNetworks()->contains(binfo.networkId().toInt()) &&
+         conn->getNetworks()->value(binfo.networkId().toInt())->ircChannel(binfo.bufferName())){
+          bproto->set_topic(toStdStringUtf8(conn->getNetworks()->value(binfo.networkId().toInt())->ircChannel(binfo.bufferName())->topic()));
+      }
   }
   resp->mutable_setup()->set_sessionid(clientPersistentInfoVersion);
 }
@@ -339,15 +354,6 @@ void ProxyConnection::sendPacket(quasselproxy::Packet pkg){
 
 //Activity stuff
 void ProxyConnection::disconnect(){//Disconnect and destroy this session
-    activityChecker.stop();
-    if(client!=NULL && client->isOpen()){
-        ((QObject)this).disconnect(client,SIGNAL(disconnected()),this,SLOT(disconnect()));
-        ((QObject)this).disconnect(client,SIGNAL(readyRead()),this,SLOT(clientHasData()));
-        client->disconnectFromHost();
-        client->close();//FIXME:crash
-        delete(client);
-        client=NULL;
-    }
     deleteLater();
 }
 void ProxyConnection::updateActivity(){
@@ -359,9 +365,7 @@ void ProxyConnection::checkActivity(){
             disconnect();
         }else if(lastActivity.secsTo(QDateTime::currentDateTime())>MAX_IDLE_TIME){
             printf("Warning: Disconnecting from client due to ping timeout\n");
-            client->disconnectFromHost();
-            clientDisconnected=true;
-            client=NULL;
+            disconnect();
         }
     }
 }
