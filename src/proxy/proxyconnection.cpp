@@ -65,10 +65,8 @@ void ProxyConnection::syncComplete(){
   authenticatedWithCore=true;
   quasselproxy::Packet resp;
   resp.mutable_setup()->set_loggedin(true);
-  if(timebase==0){
-      resp.mutable_setup()->set_timebase(QDateTime::currentDateTime().toTime_t());
-      timebase=resp.setup().timebase();
-  }
+  timebase=QDateTime::currentDateTime().toTime_t();
+  resp.mutable_setup()->set_timebase(timebase);
   printf("ID's:%d,%d\n",clientPersistentInfoVersion,conn->getSid());
   if(clientPersistentInfoVersion!=conn->getSid()){//send new persistent info etc.
       generatePersistentInfo(&resp);
@@ -208,9 +206,6 @@ void ProxyConnection::authenticateClient(quasselproxy::Packet resp){
         conn->registerConnection(this);
         printf("Exsiting session %s\n",resp.setup().username().c_str());
         syncComplete();
-        if(resp.setup().has_timebase()){
-            timebase=resp.setup().timebase();
-        }
     }else{
         conn=new ProxyUser(app);
         conn->registerConnection(this);//resp.setup().username(),resp.setup().password(),this);
