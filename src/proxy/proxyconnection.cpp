@@ -199,6 +199,7 @@ void ProxyConnection::authenticateClient(quasselproxy::Packet resp){
             resp.mutable_setup()->set_loggedin(false);
             resp.mutable_setup()->set_loginfail(true);
             sendPacket(spkg);
+            client->flush();
             disconnect();
             return;
         }
