@@ -11,6 +11,9 @@
 #include "protoconvert.h"
 #include "proxyapplication.h"
 #include "proxyuser.h"
+#include "bufferviewconfig.h"
+#include "bufferviewmanager.h"
+#include "buffersyncer.h"
 #include <cstdlib>
 #include <QDateTime>
 #ifndef min
@@ -37,6 +40,7 @@ ProxyConnection::ProxyConnection(QTcpSocket *client,ProxyApplication *app){
     connect(&activityChecker,SIGNAL(timeout()),this,SLOT(checkActivity()));
     activityChecker.start();
     timebase=0;
+    //bufViewCfg=NULL;
     //setup.set_sessionid(sid);
 }
 ProxyConnection::~ProxyConnection(){
@@ -59,6 +63,7 @@ void ProxyConnection::connectUserSignals(){
     connect(conn,SIGNAL(bufferUpdated(BufferInfo)),this, SLOT(bufferUpdated(BufferInfo)));
     connect(conn,SIGNAL(updatePersistentInfo()),this,SLOT(updatePersistentInfo()));
     connect(this,SIGNAL(sendInput(BufferInfo,QString)),conn,SIGNAL(sendInput(BufferInfo,QString)));
+    connect(this,SIGNAL(lastSeenMsg(BufferId, MsgId)),conn->getBufferSyncer(),SLOT(requestSetLastSeenMsg(BufferId,MsgId)));
 }
 void ProxyConnection::syncComplete(){
   connectUserSignals();
@@ -82,6 +87,25 @@ void ProxyConnection::syncComplete(){
   sendPacket(resp);
   //send buffer messages?
 }
+#ifdef BUFVIEW
+void ProxyConnection::bufferViewManagerCreated(){
+    bufViewCfg=new BufferViewConfig(-1,this);
+    bufViewCfg->setBufferViewName(tr("All Chats"));
+    QList<BufferId> buffersTmp;
+
+    foreach(BufferInfo buf, conn->getBufferInfos()->values()){
+        buffersTmp.append(buf.bufferId());
+    }
+    bufViewCfg->initSetBufferList(buffersTmp);
+    connect(bufViewCfg,SIGNAL(bufferAdded(BufferId,int)),SLOT(bufferAdded(BufferId,int)));
+    connect(bufViewCfg,SIGNAL(bufferRemoved(BufferId))),SLOT(bufferRemoved(BufferId));
+    conn->getBufferViewManager()->requestCreateBufferView(bufViewCfg->toVariantMap());
+}
+void bufferAdded(BufferId,int){
+}
+void bufferRemoved(BufferId){
+}
+#endif
 
 void ProxyConnection::updatePersistentInfo(){
     quasselproxy::Packet resp;
@@ -237,6 +261,9 @@ void ProxyConnection::authenticateClient(quasselproxy::Packet resp){
         conn->registerConnection(this);
         printf("Exsiting session %s\n",resp.setup().username().c_str());
         syncComplete();
+#ifdef BUFVIEW
+        bufferViewManagerCreated();
+#endif
     }else{
         conn=new ProxyUser(app);
         conn->registerConnection(this);//resp.setup().username(),resp.setup().password(),this);

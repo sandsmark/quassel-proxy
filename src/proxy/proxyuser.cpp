@@ -10,6 +10,10 @@
 #include "prototools.h"
 #include "proxyapplication.h"
 #include "proxyconnection.h"
+#include "buffersyncer.h"
+#include "clientbufferviewmanager.h"
+#include "bufferviewmanager.h"
+#include "bufferviewconfig.h"
 #include <cstdlib>
 #include <QDateTime>
 #ifndef min
@@ -26,6 +30,8 @@ ProxyUser::ProxyUser(ProxyApplication *app){
     syncronizing=false;
     authenticatedWithCore=false;
     clientPersistentInfoVersion=rand()/(RAND_MAX/PERSISTENT_ID_MAX);//Generate "unique" persistent info id
+    bufsync=NULL;
+    bufferViewManSynchronized=false;
 }
 ProxyUser::~ProxyUser(){
     app->removeSession(this);
@@ -34,6 +40,14 @@ ProxyUser::~ProxyUser(){
         delete(connTemp.at(i));
     }
     clientConenections.clear();
+    /*if(bufsync){
+        p->detachObject(bufsync);
+        delete bufsync;
+    }*/
+/*    if(p)
+        delete p;*/
+/*    if(bufViewCfg)
+        delete bufViewCfg;*/
     if(conn)
         conn->disconnectFromCore();
 }
@@ -76,7 +90,6 @@ void ProxyUser::gotCoreSessionState(const QVariantMap& sessionState){
      // create buffers
   // FIXME: get rid of this crap
   QVariantList bufferinfos = sessionState["BufferInfos"].toList();
-  //NetworkModel *networkModel = Client::networkModel();
   //Q_ASSERT(networkModel);
     printf("Add buffers\n");
   foreach(QVariant vinfo, bufferinfos)
@@ -132,6 +145,23 @@ void ProxyUser::syncComplete(){
   p->attachSlot(SIGNAL(networkCreated(NetworkId)), this, SLOT(coreNetworkCreated(NetworkId)));
   p->attachSlot(SIGNAL(networkRemoved(NetworkId)), this, SLOT(coreNetworkRemoved(NetworkId)));
   p->synchronize(back);
+
+  bufsync = new BufferSyncer(this);
+  connect(bufsync, SIGNAL(lastSeenMsgSet(BufferId, MsgId)), this, SLOT(setLastSeenMsgId(BufferId, MsgId)));
+  //connect(this, SIGNAL(setLastSeenMsg(BufferId, MsgId)), bufsync, SLOT(requestSetLastSeenMsg(BufferId, const MsgId &)));
+#if 0
+  connect(bufsync, SIGNAL(bufferRemoved(BufferId)), this, SLOT(bufferRemoved(BufferId)));
+  connect(bufsync, SIGNAL(bufferRenamed(BufferId, QString)), this, SLOT(bufferRenamed(BufferId, QString)));
+  connect(bufsync, SIGNAL(buffersPermanentlyMerged(BufferId, BufferId)), this, SLOT(buffersPermanentlyMerged(BufferId, BufferId)));
+  connect(bufsync, SIGNAL(buffersPermanentlyMerged(BufferId, BufferId)), _messageModel, SLOT(buffersPermanentlyMerged(BufferId, BufferId)));
+
+#endif
+  p->synchronize(bufsync);
+  Q_ASSERT(!bufViewMan);
+  bufViewMan = new ClientBufferViewManager(conn->getSignalProxy(), this);
+  connect(bufViewMan, SIGNAL(initDone()), this, SLOT(createDefaultBufferView()));
+
+
   //connect(back, SIGNAL(messagesReceived(BufferId, int)), this, SLOT(messagesReceived(BufferId, int)));
   connect(back, SIGNAL(backlogRecieved(BufferId, MsgId, MsgId, int, int, QVariantList)), this, SIGNAL(backlogRecieved(BufferId, MsgId, MsgId, int, int, QVariantList)));
   //BufferInfo reqbuf=bufferInfos.values()[5];
@@ -206,6 +236,48 @@ void ProxyUser::bufferUpdatedPrivate(BufferInfo info,bool callConnections){
     if(callConnections){
         bufferUpdated(info);
     }
+}
+void ProxyUser::setLastSeenMsgId(BufferId bufId, MsgId msgId){
+    printf("Set last seen msg id:%d,%d\n",bufId.toInt(),msgId.toInt());
+}
+void ProxyUser::createDefaultBufferView(){
+    bufferViewManSynchronized=true;
+    QList<QPointer<BufferViewConfig> > bufViewConfigs;
+    printf("Addbufcfg");
+#ifdef BUFVIEW
+    foreach(ProxyConnection* client,clientConenections){
+        client->bufferViewManagerCreated();
+    }
+#else
+    //connect(bufViewMan,SIGNAL(bufferUpdated(BufferInfo)),this,SLOT(bufferUpdatedPrivateSlot(BufferInfo)));
+    foreach(BufferViewConfig* bufViewCfg, bufViewMan->bufferViewConfigs()){
+        connect(bufViewCfg,SIGNAL(bufferAdded(BufferId,int)),this,SLOT(bufferAdded(BufferId,int)));
+        connect(bufViewCfg,SIGNAL(bufferRemoved(BufferId)),this,SLOT(bufferRemoved(BufferId)));
+        connect(bufViewCfg,SIGNAL(bufferPermanentlyRemoved(BufferId)),this,SLOT(bufferPermanentlyRemoved(BufferId)));
+    }
+/*    bufViewCfg=new BufferViewConfig(-1,this);
+    bufViewCfg->setBufferViewName(tr("All Chats"));
+    QList<BufferId> buffersTmp;
+
+    foreach(BufferInfo buf, conn->getBufferInfos()->values()){
+        buffersTmp.append(buf.bufferId());
+    }*/
+    //bufViewCfg->initSetBufferList(buffersTmp);
+    //connect(bufViewCfg,SIGNAL(bufferAdded(BufferId,int)),SLOT(bufferAdded(BufferId,int)));
+    //connect(bufViewCfg,SIGNAL(bufferRemoved(BufferId))),SLOT(bufferRemoved(BufferId));
+    //conn->getBufferViewManager()->requestCreateBufferView(bufViewCfg->toVariantMap());
+
+#endif
+    //buffer
+}
+void ProxyUser::bufferAdded(BufferId id,int i){
+    printf("Addbuf %d,%d\n",id.toInt(),i);
+}
+void ProxyUser::bufferRemoved(BufferId id){
+    printf("Rmwbuf %d\n",id.toInt());
+}
+void ProxyUser::bufferPermanentlyRemoved(const BufferId &id){
+    printf("PermRmwbuf %d\n",id.toInt());
 }
 void ProxyUser::disconnectedFromCore(){
     //FIXME: Test that this is really called

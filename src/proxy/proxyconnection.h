@@ -45,6 +45,7 @@ class IrcChannel;
 class Message;
 class ProxyApplication;
 class ProxyUser;
+class BufferViewConfig;
 
 //! This class encapsulates Quassel's Qt-based GUI.
 /** This is basically a wrapper around MainWin, which is necessary because we cannot derive MainWin
@@ -79,18 +80,25 @@ public:
 public slots:
   //virtual void init();
   void syncComplete();
-    void loginFailed();
+  void loginFailed();
 
+#ifdef BUFVIEW
+  void bufferViewManagerCreated();
+  void bufferAdded(BufferId,int);
+  void bufferRemoved(BufferId);*/
+#endif
 signals:
     //signals connected to the signalproxy
     void sendInput(BufferInfo,QString);
     void requestNetworkStates();
+    void lastSeenMsg(BufferId, MsgId);
 
     void requestCreateIdentity(const Identity &, const QVariantMap &);
     void requestRemoveIdentity(IdentityId);
 
     void requestCreateNetwork(const NetworkInfo &, const QStringList &);
     void requestRemoveNetwork(NetworkId);
+
     //void removeSession();
     //void switchSession(quasselproxy::Packet);
     //void registerSession(quasselproxy::Packet);

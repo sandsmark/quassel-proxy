@@ -9,6 +9,7 @@ message Packet {
   repeated Identity identities=7;
   optional SessionSetup setup=8;
   optional StatusInfo statusInfo=9;
+  repeated BufferView bufferView=10;
 }
 message StatusInfo{
   optional uint32 activbid=1;
@@ -205,4 +206,19 @@ message Identity{
   optional string kickReason=13;
   optional string partReason=14;
   optional string quitReason=15;
+}
+message BufferView{
+  required uint32 id=1;
+  optional string name=2;
+  optional uint32 nid=3;
+  optional bool autoAddNewBuffers=4;
+  optional bool sortAlphabetically=5;
+  optional bool hideInteractiveBufers=6;
+  optional bool disableDecoration=7;
+  optional bool allowedBufferTypes=8;
+  optional bool minimumActivity=9;
+  repeated uint32 buffers=10;
+  repeated uint32 removeBuffers=11;
+  repeated uint32 temporaryRemovedBuffers=12;
+  repeated uint32 addBuffers=13;
 }

@@ -44,6 +44,11 @@ class IrcChannel;
 class Message;
 class ProxyApplication;
 class ProxyConnection;
+class BufferSyncer;
+class BufferViewManager;
+class BufferViewConfig;
+class SignalProxy;
+
 
 //! This class encapsulates Quassel's Qt-based GUI.
 /** This is basically a wrapper around MainWin, which is necessary because we cannot derive MainWin
@@ -128,6 +133,11 @@ protected slots:
   void netsyncComplete();
   void syncComplete();
   void disconnectedFromCore();
+  //connected to buffersyncer
+  void setLastSeenMsgId(BufferId, MsgId);
+  //void requestSetLastSeenMsg(BufferId, const MsgId &);
+  //bufferviewmanager
+  void createDefaultBufferView();
 
   //void clientHasData();
   //void activateBuffer(quint32 newbid);
@@ -136,6 +146,9 @@ protected slots:
   //void socketDisconnected();
 //  void syncronizeNetwork(const QVariant net);
 private slots:
+  void bufferAdded(BufferId,int);
+  void bufferRemoved(BufferId);
+  void bufferPermanentlyRemoved(const BufferId &bufferId);
   void bufferUpdatedPrivateSlot(BufferInfo);
 private:
   void bufferUpdatedPrivate(BufferInfo,bool);
