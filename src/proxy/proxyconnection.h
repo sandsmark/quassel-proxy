@@ -24,6 +24,7 @@
 #include "abstractui.h"
 #include "bufferinfo.h"
 #include "identity.h"
+#include "bufferinfo.h"
 #ifdef MAIN_CPP
 #include "proxy/protocol.pb.h"
 #else
@@ -128,7 +129,11 @@ private:
   ProxyUser *conn;
   QTcpSocket *client;
   ProxyApplication *app;
-  QList<quint32> visitedBuffers;
+  BufferViewConfig *bufViewCfg;
+
+
+  //QList<quint32> visitedBuffers;
+  QHash<quint32, BufferInfo::Activity> bufferStates;
   //QHash<quint32, Identity *> identities;
   int clientPersistentInfoVersion;
 

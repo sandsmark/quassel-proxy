@@ -146,17 +146,47 @@ void ProxyConnection::backlogRecieved(BufferId id, MsgId first, MsgId last, int 
     sendPacket(pkg);
 }
 void ProxyConnection::recvMessage(const Message& msg){
+    //bool seen=false;
     if(!syncronizing&&!clientPause){
         if(msg.bufferId().toInt()==activeBuffer){
             quasselproxy::Packet pkg;
             convertMessage(&msg,pkg.add_messages());
             sendPacket(pkg);
+            
+            emit lastSeenMsg(msg.bufferId(),msg.msgId());
+            //seen=true;
+            //printf("SEEN);
+        }else{//should we send activity info
+            if(conn->isForUs(msg)){
+                if(!(bufferStates.contains(msg.bufferId().toInt())&&
+                    bufferStates.value(msg.bufferId().toInt())==BufferInfo::Highlight)){
+                    bufferStates.insert(msg.bufferId().toInt(),BufferInfo::Highlight);
+                    //send higlight message
+                    quasselproxy::Packet pkg;
+                    quasselproxy::Buffer* bufmsg= pkg.add_buffers();
+                    bufmsg->set_bid(msg.bufferId().toInt());
+                    bufmsg->set_activity_highlight(true);
+                    sendPacket(pkg);
+                    printf("HighMsg:(%d)\n",msg.bufferId().toInt());
+                }
+            }else if(bufferStates.contains(msg.bufferId().toInt())&&
+                     (bufferStates.value(msg.bufferId().toInt())==BufferInfo::NoActivity||
+                     bufferStates.value(msg.bufferId().toInt())==BufferInfo::OtherActivity)){
+                    bufferStates.insert(msg.bufferId().toInt(),BufferInfo::NewMessage);
+                    //send newmessage message
+                    quasselproxy::Packet pkg;
+                    quasselproxy::Buffer* bufmsg= pkg.add_buffers();
+                    bufmsg->set_bid(msg.bufferId().toInt());
+                    bufmsg->set_activity_newmessage(true);
+                    sendPacket(pkg);
+                    printf("NewMsg:(%d)\n",msg.bufferId().toInt());
+            }
         }
     }
-    printf("MSG:<%s>%s\n",msg.sender().toUtf8().constData(),msg.contents().toUtf8().constData());
+    printf("MSG:(%d,%d)%s>%s\n",msg.bufferId().toInt(),msg.msgId().toInt(),msg.sender().toUtf8().constData(),msg.contents().toUtf8().constData());
 
 }
-
+//void setLastSeenMsg(BufferId, MsgId);
 
 void ProxyConnection::bufferUpdated(BufferInfo info){
     if(!syncronizing&&!clientPause){
@@ -243,6 +273,7 @@ void ProxyConnection::packetRecievedFromClient(quasselproxy::Packet pkg){
             clientPause=true;
         }else{
             if(pkg.statusinfo().activbid()!=activeBuffer){
+                bufferStates.insert(activeBuffer,BufferInfo::NoActivity);
                 activateBuffer(pkg.statusinfo().activbid());
                 activeBuffer=pkg.statusinfo().activbid();
             }

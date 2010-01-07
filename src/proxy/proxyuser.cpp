@@ -114,7 +114,7 @@ void ProxyUser::netsyncComplete(){
 }
 void ProxyUser::syncComplete(){
   authenticatedWithCore=true;
-  SignalProxy *p=conn->getSignalProxy();
+  p=conn->getSignalProxy();
   p->attachSlot(SIGNAL(displayMsg(const Message &)), this, SIGNAL(recvMessage(const Message &)));
   //p->attachSlot(SIGNAL(displayStatusMsg(QString, QString)), this, SLOT(recvStatusMsg(QString, QString)));//unused
 
@@ -200,7 +200,6 @@ void ProxyUser::bufferUpdatedPrivate(BufferInfo info,bool callConnections){
     if(bufferInfos.contains(info.bufferId().toInt())){
         printf("Updated buffer:%s,%d\n",info.bufferName().toUtf8().constData(),info.type());
     }else{
-
         printf("Added buffer:%s,%d,%d\n",info.bufferName().toUtf8().constData(),info.type(),info.bufferId().toInt());
     }
     bufferInfos.insert(info.bufferId().toInt(),info);
@@ -271,9 +270,27 @@ QHash<quint32, BufferInfo>* ProxyUser::getBufferInfos(){
 QHash<quint32, Network* >* ProxyUser::getNetworks(){
   return &networks;
 }
+BufferViewManager *ProxyUser::getBufferViewManager(){
+    return bufViewMan;
+}
+BufferSyncer* ProxyUser::getBufferSyncer(){
+    return bufsync;
+}
 bool ProxyUser::isLoggedIn(){
     return authenticatedWithCore;
 }
 QPointer<BacklogRequester> ProxyUser::getBacklogRequester(){
     return back;
+}
+bool ProxyUser::isForUs(const Message& msg){//FIXME: Still hopelessly wrong
+    /*QString nick = msg.sender().left(msg.sender().indexOf("!")>-1?
+                                    msg.sender().indexOf("!"):
+                                    msg.sender().length());*/
+    foreach(QString nick, identities.value(networks.value(msg.bufferInfo().networkId().toInt())->identity().toInt())->nicks()){
+        if(msg.contents().contains(nick)){
+            return true;
+        }
+    }
+    return false;
+    //return nicks.contains(nick);
 }

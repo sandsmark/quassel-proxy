@@ -72,7 +72,10 @@ public:
   QHash<quint32, Identity *>* getIdentities();
   QHash<quint32, BufferInfo>* getBufferInfos();
   QHash<quint32, Network* >* getNetworks();
+  BufferViewManager *getBufferViewManager();
+  BufferSyncer* getBufferSyncer();
   bool isLoggedIn();
+  bool isForUs(const Message& msg);
 public slots:
   virtual void init();
 signals:
@@ -162,6 +165,11 @@ private:
   int clientPersistentInfoVersion;
   ProxyApplication *app;
   QList<QPointer<ProxyConnection> > clientConenections;
+  BufferSyncer *bufsync;
+  BufferViewManager* bufViewMan;
+  //QList<QPointer<BufferViewConfig> > bufViewConfigs;
+  bool bufferViewManSynchronized;
+  SignalProxy *p;
 };
 
 //Proxy *Proxy::instance() { return _instance ? _instance.data() : new Proxy(); }
