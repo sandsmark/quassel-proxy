@@ -89,20 +89,20 @@ int main(int argc, char **argv)
     cliParser->addOption("configdir <path>", 'c', "Specify the directory holding configuration files, the SQlite database and the SSL certificate");
 #endif
 #ifdef BUILD_PROXY
-    cliParser->addOption("listen <address>[,<address[,...]]>", 'c', "The address(es) proxy will listen on", "0.0.0.0,::");
+    cliParser->addOption("listen <address>[,<address[,...]]>", 'l', "The address(es) proxy will listen on", "0.0.0.0,::");
     cliParser->addOption("listen-port <port>",'x', "The port proxy will listen at", QString("4342"));
     cliParser->addOption("address <address>",'a', "The address proxy will try to connect to the core at ", "127.0.0.1");
     cliParser->addOption("port <port>",'p', "The port proxy will try to connect to the core at", QString("4242"));
 #endif
     cliParser->addOption("datadir <path>", 0, "DEPRECATED - Use --configdir instead");
 
-#ifndef BUILD_CORE
+#ifdef BUILD_GUI
     // put client-only arguments here
     cliParser->addOption("qss <file.qss>", 0, "Load a custom application stylesheet");
     cliParser->addSwitch("debugbufferswitches", 0, "Enables debugging for bufferswitches");
     cliParser->addSwitch("debugmodel", 0, "Enables debugging for models");
 #endif
-#ifndef BUILD_QTUI
+#ifdef BUILD_CORE
     // put core-only arguments here
     cliParser->addOption("listen <address>[,<address[,...]]>", 0, "The address(es) quasselcore will listen on", "::,0.0.0.0");
     cliParser->addOption("port <port>", 'p', "The port quasselcore will listen at", QString("4242"));

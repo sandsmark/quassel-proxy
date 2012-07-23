@@ -98,10 +98,10 @@ bool ProxyApplication::init() {
     if(!startListening()){
         return false;
     }
-    printf("Inited\n");
+    qDebug() << "Proxy listening on" << listenAddress << "on port" << port;
     return true;
   }
-  printf("Noinit\n");
+  qWarning() << "Proxy not started!";
   return false;
 }
 
