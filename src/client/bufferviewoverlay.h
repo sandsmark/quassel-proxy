@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2005-08 by the Quassel Project                          *
+ *   Copyright (C) 2005-2012 by the Quassel Project                        *
  *   devel@quassel-irc.org                                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -15,7 +15,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program; if not, write to the                         *
  *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.         *
  ***************************************************************************/
 
 #ifndef BUFFERVIEWOVERLAY_H
@@ -28,64 +28,67 @@
 class BufferViewConfig;
 class ClientBufferViewConfig;
 
-class BufferViewOverlay : public QObject {
-  Q_OBJECT
+class BufferViewOverlay : public QObject
+{
+    Q_OBJECT
 
 public:
-  BufferViewOverlay(QObject *parent = 0);
+    BufferViewOverlay(QObject *parent = 0);
 
-  inline const QSet<int> &bufferViewIds() { return _bufferViewIds; }
-  bool allNetworks();
+    inline const QSet<int> &bufferViewIds() { return _bufferViewIds; }
+    bool allNetworks();
 
-  const QSet<NetworkId> &networkIds();
-  const QSet<BufferId> &bufferIds();
-  const QSet<BufferId> &removedBufferIds();
-  const QSet<BufferId> &tempRemovedBufferIds();
+    const QSet<NetworkId> &networkIds();
+    const QSet<BufferId> &bufferIds();
+    const QSet<BufferId> &removedBufferIds();
+    const QSet<BufferId> &tempRemovedBufferIds();
 
-  bool addBuffersAutomatically();
-  bool hideInactiveBuffers();
-  int allowedBufferTypes();
-  int minimumActivity();
+    int allowedBufferTypes();
+    int minimumActivity();
 
-  inline bool isInitialized() { return _uninitializedViewCount == 0; }
+    inline bool isInitialized() { return _uninitializedViewCount == 0; }
 
 public slots:
-  void addView(int viewId);
-  void removeView(int viewId);
+    void addView(int viewId);
+    void removeView(int viewId);
 
-  // updates propagated from the actual views
-  void update();
+    void reset();
+    void save();
+    void restore();
+
+    // updates propagated from the actual views
+    void update();
 
 signals:
-  void hasChanged();
-  void initDone();
+    void hasChanged();
+    void initDone();
 
 protected:
-  virtual void customEvent(QEvent *event);
+    virtual void customEvent(QEvent *event);
 
 private slots:
-  void viewInitialized();
-  void viewInitialized(BufferViewConfig *config);
+    void viewInitialized();
+    void viewInitialized(BufferViewConfig *config);
 
 private:
-  void updateHelper();
-  bool _aboutToUpdate;
+    void updateHelper();
+    QSet<BufferId> filterBuffersByConfig(const QList<BufferId> &buffers, const BufferViewConfig *config);
 
-  QSet<int> _bufferViewIds;
-  int _uninitializedViewCount;
+    bool _aboutToUpdate;
 
-  QSet<NetworkId> _networkIds;
+    QSet<int> _bufferViewIds;
+    int _uninitializedViewCount;
 
-  bool _addBuffersAutomatically;
-  bool _hideInactiveBuffers;
-  int _allowedBufferTypes;
-  int _minimumActivity;
+    QSet<NetworkId> _networkIds;
+    int _allowedBufferTypes;
+    int _minimumActivity;
 
-  QSet<BufferId> _buffers;
-  QSet<BufferId> _removedBuffers;
-  QSet<BufferId> _tempRemovedBuffers;
+    QSet<BufferId> _buffers;
+    QSet<BufferId> _removedBuffers;
+    QSet<BufferId> _tempRemovedBuffers;
 
-  static const int _updateEventId;
+    static const int _updateEventId;
 };
+
 
 #endif //BUFFERVIEWOVERLAY_H

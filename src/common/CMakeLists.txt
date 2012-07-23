@@ -1,46 +1,47 @@
 # Builds the common module
 
-set(QT_DONT_USE_QTGUI 1)
-set(QT_USE_QTNETWORK 1)
-include(${QT_USE_FILE})
+setup_qt_variables(Core Network)
 
 set(SOURCES
     aliasmanager.cpp
     backlogmanager.cpp
+    basichandler.cpp
     bufferinfo.cpp
     buffersyncer.cpp
     bufferviewconfig.cpp
     bufferviewmanager.cpp
     cliparser.cpp
+    coreinfo.cpp
+    ctcpevent.cpp
+    event.cpp
+    eventmanager.cpp
     identity.cpp
     ignorelistmanager.cpp
     ircchannel.cpp
+    ircevent.cpp
     irclisthelper.cpp
     ircuser.cpp
     logger.cpp
     message.cpp
+    messageevent.cpp
     network.cpp
     networkconfig.cpp
+    networkevent.cpp
     quassel.cpp
     settings.cpp
     signalproxy.cpp
     syncableobject.cpp
     util.cpp)
 
-if(CMAKE_HOST_WIN32)
-    set(SOURCES ${SOURCES} logbacktrace_win.cpp)
-endif(CMAKE_HOST_WIN32)
-if(CMAKE_HOST_UNIX)
-    set(SOURCES ${SOURCES} logbacktrace_unix.cpp)
-endif(CMAKE_HOST_UNIX)
-
 set(MOC_HDRS
     aliasmanager.h
     backlogmanager.h
+    basichandler.h
     buffersyncer.h
     bufferviewconfig.h
     bufferviewmanager.h
     coreinfo.h
+    eventmanager.h
     identity.h
     ignorelistmanager.h
     ircchannel.h
@@ -56,6 +57,11 @@ set(HEADERS ${MOC_HDRS}
     abstractcliparser.h
     bufferinfo.h
     cliparser.h
+    ctcpevent.h
+    event.h
+    ircevent.h
+    messageevent.h
+    networkevent.h
     logger.h
     message.h
     types.h
@@ -66,20 +72,26 @@ if(APPLE)
   set(HEADERS ${HEADERS} mac_utils.h)
 endif(APPLE)
 
-qt4_wrap_cpp(MOC ${MOC_HDRS})
+if(CMAKE_HOST_WIN32)
+    set(SOURCES ${SOURCES} logbacktrace_win.cpp)
+endif(CMAKE_HOST_WIN32)
+if(CMAKE_HOST_UNIX)
+    set(SOURCES ${SOURCES} logbacktrace_unix.cpp)
+endif(CMAKE_HOST_UNIX)
 
-include_directories(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR})  # for version.inc and version.gen
+include_directories(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR} ${QUASSEL_QT_INCLUDES})  # for version.inc and version.gen
+
+if(NOT WITH_QT5)
+  qt4_wrap_cpp(MOC ${MOC_HDRS})
+endif(NOT WITH_QT5)
+
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES version.gen)
 
-add_library(mod_common STATIC ${SOURCES} ${MOC})
+add_library(mod_common STATIC ${SOURCES} ${HEADERS} ${MOC})
+set_target_properties(mod_common PROPERTIES COMPILE_FLAGS "${QUASSEL_QT_COMPILEFLAGS}")
 
 if(APPLE)
   target_link_libraries(mod_common "-framework CoreServices" "-framework CoreFoundation")
 endif(APPLE)
 
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-  find_library(libdl dl)
-  if(NOT libdl MATCHES "NOTFOUND")
-    target_link_libraries(mod_common ${libdl})
-  endif(NOT libdl MATCHES "NOTFOUND")
-endif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+target_link_libraries(mod_common ${CMAKE_DL_LIBS})

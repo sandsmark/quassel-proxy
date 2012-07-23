@@ -33,6 +33,8 @@
 #include "channelinfo.h"
 //#include "mainwin.h"
 
+#include <QtCore/QDateTime>
+
 
 class ConnectionManager;
 class Identity;

@@ -31,7 +31,7 @@ if(WANT_MONO OR WANT_QTCLIENT)
     endif(INSTALL_OXY)
     set(CLIENT_RCS ${CLIENT_RCS} ${ICON_RCS} PARENT_SCOPE)
   else(EMBED_DATA)
-    install(DIRECTORY hicolor DESTINATION ${DATA_INSTALL_DIR}/quassel/icons)
+    install(DIRECTORY hicolor DESTINATION ${ICON_INSTALL_DIR})
     install(DIRECTORY oxygen DESTINATION ${DATA_INSTALL_DIR}/quassel/icons)
     if(INSTALL_OXY)
       install(DIRECTORY oxygen_kde/ DESTINATION ${DATA_INSTALL_DIR}/quassel/icons/oxygen)
@@ -40,9 +40,17 @@ if(WANT_MONO OR WANT_QTCLIENT)
 endif(WANT_MONO OR WANT_QTCLIENT)
 
 # Application icon
-if(NOT APPLE AND NOT WIN32)
+
+# cmake-2.6.2 can't handle nested conditions
+# if((UNIX AND NOT APPLE) OR HAVE_KDE)
+if(HAVE_KDE OR UNIX)
+ if(HAVE_KDE OR NOT APPLE)
+
   install(FILES oxygen_kde/48x48/apps/quassel.png DESTINATION ${ICON_INSTALL_DIR}/hicolor/48x48/apps)
   if(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
     install(FILES oxygen_kde/48x48/apps/quassel.png DESTINATION /usr/share/pixmaps)
   endif(CMAKE_INSTALL_PREFIX STREQUAL "/usr")
-endif(NOT APPLE AND NOT WIN32)
+
+# endif((UNIX AND NOT APPLE) OR HAVE_KDE)
+ endif(HAVE_KDE OR NOT APPLE)
+endif(HAVE_KDE OR UNIX)

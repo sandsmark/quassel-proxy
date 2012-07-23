@@ -2,55 +2,56 @@
 
 add_subdirectory(common)
 include_directories(BEFORE common)
-if(WANT_CORE OR WANT_MONO)
+
+if(BUILD_CORE)
   add_subdirectory(core)
   include_directories(BEFORE core)
-endif(WANT_CORE OR WANT_MONO)
-if(WANT_QTCLIENT OR WANT_MONO OR WANT_PROXY)
+endif(BUILD_CORE)
+if(BUILD_GUI OR WANT_PROXY)
   add_subdirectory(client)
   include_directories(BEFORE client)
-endif(WANT_QTCLIENT OR WANT_MONO OR WANT_PROXY)
+endif(BUILD_GUI OR WANT_PROXY)
 
-if(WANT_QTCLIENT OR WANT_MONO)
+if(BUILD_GUI)
   add_subdirectory(uisupport)
   add_subdirectory(qtui)
   include_directories(BEFORE uisupport)
   include_directories(BEFORE qtui)
-#  if(HAVE_KDE)
-#    add_subdirectory(kdeui)
-#    include_directories(kdeui)
-#    set(LINK_KDE mod_kdeui)
-#  endif(HAVE_KDE)
 
   if(STATIC)
     link_directories(${QT_PLUGINS_DIR}/imageformats)
-    set(CLIENT_LIBS qjpeg qgif)
+    set(CLIENT_LIBS ${CLIENT_LIBS} qjpeg qgif)
   endif(STATIC)
+endif(BUILD_GUI)
 
-endif(WANT_QTCLIENT OR WANT_MONO)
 if(WANT_PROXY)
   add_subdirectory(proxy)
   include_directories(BEFORE proxy)
 endif(WANT_PROXY)
+
 include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}) # for version.gen
 
 # Add resources. Can't be done in other subdirs apparently.
 # Note that these variables need to contain paths relative to src/ (this dir)
-qt4_add_resources(CLIENT_DEPS ${CLIENT_RCS})
-qt4_add_resources(CORE_DEPS ${CORE_RCS})
-qt4_add_resources(COMMON_DEPS ${COMMON_RCS})
-qt4_add_resources(PROXY_DEPS ${PROXY_RCS})
-
-if(INDICATEQT_FOUND)
-  link_directories(${INDICATEQT_LIBRARY_DIRS})
-endif(INDICATEQT_FOUND)
+if(WITH_QT5)
+  qt5_add_resources(CLIENT_DEPS ${CLIENT_RCS})
+  qt5_add_resources(CORE_DEPS ${CORE_RCS})
+  qt5_add_resources(COMMON_DEPS ${COMMON_RCS})
+  qt5_add_resources(PROXY_DEPS ${PROXY_RCS})
+else(WITH_QT5)
+  qt4_add_resources(CLIENT_DEPS ${CLIENT_RCS})
+  qt4_add_resources(CORE_DEPS ${CORE_RCS})
+  qt4_add_resources(COMMON_DEPS ${COMMON_RCS})
+  qt4_add_resources(PROXY_DEPS ${PROXY_RCS})
+endif(WITH_QT5)
 
 if(WANT_CORE)
-  setup_qt4_variables(NETWORK SCRIPT SQL)
+  setup_qt_variables(Network Script Sql ${CORE_QT_MODULES})
+  include_directories(${QUASSEL_QT_INCLUDES})
   add_executable(quasselcore common/main.cpp ${COMMON_DEPS} ${CORE_DEPS})
   add_dependencies(quasselcore po genversion_run)
   set_target_properties(quasselcore PROPERTIES
-                                    COMPILE_FLAGS "-DQT_NETWORK_LIB -DQT_SCRIPT_LIB -DQT_SQL_LIB -DBUILD_CORE"
+                                    COMPILE_FLAGS "-DBUILD_CORE ${QUASSEL_QT_COMPILEFLAGS}"
                                     OUTPUT_NAME ../quasselcore)
   target_link_libraries(quasselcore mod_core mod_common
                                     ${QUASSEL_QT_LIBRARIES} ${QUASSEL_SSL_LIBRARIES})
@@ -58,39 +59,43 @@ if(WANT_CORE)
 endif(WANT_CORE)
 
 if(WANT_QTCLIENT)
-  setup_qt4_variables(${LINK_DBUS} GUI NETWORK ${LINK_WEBKIT})
+  setup_qt_variables(Gui Network ${CLIENT_QT_MODULES})
+  include_directories(${QUASSEL_QT_INCLUDES})
   add_executable(quasselclient WIN32 common/main.cpp ${COMMON_DEPS} ${CLIENT_DEPS})
   add_dependencies(quasselclient po genversion_run)
   set_target_properties(quasselclient PROPERTIES
-                                      COMPILE_FLAGS "-DQT_GUI_LIB -DQT_NETWORK_LIB -DBUILD_QTUI"
+                                      COMPILE_FLAGS "-DBUILD_QTUI ${QUASSEL_QT_COMPILEFLAGS} ${CLIENT_COMPILE_FLAGS}"
                                       OUTPUT_NAME ../quasselclient)
   target_link_libraries(quasselclient ${LINK_KDE} mod_qtui mod_uisupport mod_client mod_common ${CLIENT_LIBS}
-                                      ${QUASSEL_QT_LIBRARIES} ${QUASSEL_KDE_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${PHONON_LIBS} ${INDICATEQT_LIBRARIES})
+                                      ${QUASSEL_QT_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${CLIENT_LIBRARIES})
   install(TARGETS quasselclient RUNTIME DESTINATION ${BIN_INSTALL_DIR})
 endif(WANT_QTCLIENT)
 
 if(WANT_PROXY)#proxy
-  setup_qt4_variables(NETWORK GUI)#some parts of client depends on qtgui
+  setup_qt_variables(NETWORK GUI)#some parts of client depends on qtgui
   add_executable(quasselproxy WIN32 common/main.cpp ${COMMON_DEPS} ${PROXY_DEPS})
   add_dependencies(quasselproxy po genversion_run)
   set_target_properties(quasselproxy PROPERTIES
                                       COMPILE_FLAGS "-DQT_NETWORK_LIB -DBUILD_PROXY"
                                       OUTPUT_NAME ../quasselproxy)
   target_link_libraries(quasselproxy mod_proxy mod_client mod_common
-                                      ${QUASSEL_QT_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${PROTOBUF_LIBRARY} )
+                                      ${QUASSEL_QT_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${PROTOBUF_LIBRARY} pthread)
   install(TARGETS quasselproxy RUNTIME DESTINATION ${BIN_INSTALL_DIR})
 endif(WANT_PROXY)
 
 if(WANT_MONO)
-  setup_qt4_variables(${LINK_DBUS} GUI NETWORK SCRIPT SQL ${LINK_WEBKIT})
-  qt4_wrap_cpp(MOC qtui/monoapplication.h)
+  setup_qt_variables(Gui Network Script Sql ${CLIENT_QT_MODULES} ${CORE_QT_MODULES})
+  include_directories(${QUASSEL_QT_INCLUDES})
+  if(NOT WITH_QT5)
+    qt4_wrap_cpp(MOC qtui/monoapplication.h)
+  endif(NOT WITH_QT5)
   add_executable(quassel WIN32 common/main.cpp qtui/monoapplication.cpp ${MOC} ${COMMON_DEPS} ${CLIENT_DEPS} ${CORE_DEPS})
   add_dependencies(quassel po genversion_run)
   set_target_properties(quassel PROPERTIES
-                                COMPILE_FLAGS "-DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_SCRIPT_LIB -DQT_SQL_LIB -DBUILD_MONO"
+                                COMPILE_FLAGS "-DBUILD_MONO ${QUASSEL_QT_COMPILEFLAGS} ${CLIENT_COMPILE_FLAGS}"
                                 OUTPUT_NAME ../quassel)
   target_link_libraries(quassel mod_qtui mod_uisupport mod_client mod_core mod_common ${CLIENT_LIBS}
-                                ${QUASSEL_QT_LIBRARIES} ${QUASSEL_KDE_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${PHONON_LIBS} ${INDICATEQT_LIBRARIES})
+                                ${QUASSEL_QT_LIBRARIES} ${QUASSEL_SSL_LIBRARIES} ${CLIENT_LIBRARIES})
   install(TARGETS quassel RUNTIME DESTINATION ${BIN_INSTALL_DIR})
 endif(WANT_MONO)
 

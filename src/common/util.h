@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2005/06 by the Quassel Project                          *
+ *   Copyright (C) 2005-2012 by the Quassel Project                        *
  *   devel@quassel-irc.org                                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -15,7 +15,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program; if not, write to the                         *
  *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.         *
  ***************************************************************************/
 
 #ifndef UTIL_H
@@ -26,7 +26,6 @@
 #include <QString>
 #include <QMetaMethod>
 
-
 // TODO Use versions from Network instead
 QString nickFromMask(QString mask);
 QString userFromMask(QString mask);
@@ -35,6 +34,9 @@ bool isChannelName(QString str);
 
 //! Strip mIRC format codes
 QString stripFormatCodes(QString);
+
+//! Remove accelerator markers (&) from the string
+QString stripAcceleratorMarkers(const QString &);
 
 QString secondsToString(int timeInSeconds);
 
@@ -50,22 +52,26 @@ QString decodeString(const QByteArray &input, QTextCodec *codec = 0);
 uint editingDistance(const QString &s1, const QString &s2);
 
 template<typename T>
-QVariantList toVariantList(const QList<T> &list) {
-  QVariantList variants;
-  for(int i = 0; i < list.count(); i++) {
-    variants << QVariant::fromValue<T>(list[i]);
-  }
-  return variants;
+QVariantList toVariantList(const QList<T> &list)
+{
+    QVariantList variants;
+    for (int i = 0; i < list.count(); i++) {
+        variants << QVariant::fromValue<T>(list[i]);
+    }
+    return variants;
 }
 
+
 template<typename T>
-QList<T> fromVariantList(const QVariantList &variants) {
-  QList<T> list;
-  for(int i = 0; i < variants.count(); i++) {
-    list << variants[i].value<T>();
-  }
-  return list;
+QList<T> fromVariantList(const QVariantList &variants)
+{
+    QList<T> list;
+    for (int i = 0; i < variants.count(); i++) {
+        list << variants[i].value<T>();
+    }
+    return list;
 }
+
 
 QByteArray prettyDigest(const QByteArray &digest);
 

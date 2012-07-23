@@ -1,98 +1,140 @@
 /***************************************************************************
-*   Copyright (C) 2005-09 by the Quassel Project                          *
-*   devel@quassel-irc.org                                                 *
-*                                                                         *
-*   This program is free software; you can redistribute it and/or modify  *
-*   it under the terms of the GNU General Public License as published by  *
-*   the Free Software Foundation; either version 2 of the License, or     *
-*   (at your option) version 3.                                           *
-*                                                                         *
-*   This program is distributed in the hope that it will be useful,       *
-*   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
-*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
-*   GNU General Public License for more details.                          *
-*                                                                         *
-*   You should have received a copy of the GNU General Public License     *
-*   along with this program; if not, write to the                         *
-*   Free Software Foundation, Inc.,                                       *
-*   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
-***************************************************************************/
+ *   Copyright (C) 2005-2012 by the Quassel Project                        *
+ *   devel@quassel-irc.org                                                 *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) version 3.                                           *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program; if not, write to the                         *
+ *   Free Software Foundation, Inc.,                                       *
+ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.         *
+ ***************************************************************************/
 
 #ifndef SYSTEMTRAY_H_
 #define SYSTEMTRAY_H_
 
-#ifdef HAVE_KDE
-#  include <KSystemTrayIcon>
-#else
-#  include <QSystemTrayIcon>
-#endif
-
-#include <QTimer>
-
 #include "icon.h"
 
-class SystemTray : public QObject {
-  Q_OBJECT
+class Action;
+class QMenu;
 
-public:
-  enum State {
-    Inactive,
-    Active
-  };
+class SystemTray : public QObject
+{
+    Q_OBJECT
+    Q_ENUMS(State Mode MessageIcon ActivationReason)
 
-  SystemTray(QObject *parent = 0);
-  ~SystemTray();
+public :
+        enum State {
+        Passive,
+        Active,
+        NeedsAttention
+    };
 
-  inline bool isSystemTrayAvailable() const;
-  inline bool isAlerted() const;
+    enum Mode {
+        Invalid,
+        Legacy,
+        StatusNotifier
+    };
 
-  inline void setInhibitActivation();
+    // same as in QSystemTrayIcon
+    enum MessageIcon {
+        NoIcon,
+        Information,
+        Warning,
+        Critical
+    };
+
+    // same as in QSystemTrayIcon
+    enum ActivationReason {
+        Unknown,
+        Context,
+        DoubleClick,
+        Trigger,
+        MiddleClick
+    };
+
+    explicit SystemTray(QWidget *parent);
+    virtual ~SystemTray();
+    virtual void init();
+
+    inline Mode mode() const;
+    inline State state() const;
+    inline bool isAlerted() const;
+    virtual inline bool isSystemTrayAvailable() const;
+
+    void setAlert(bool alerted);
+    virtual inline bool isVisible() const { return false; }
+
+    QWidget *associatedWidget() const;
 
 public slots:
-  void setState(State);
-  void setAlert(bool alert = true);
-  void setIconVisible(bool visible = true);
-  void setToolTip(const QString &tip);
-  void showMessage(const QString &title, const QString &message,
-                   QSystemTrayIcon::MessageIcon icon = QSystemTrayIcon::Information, int millisecondsTimeoutHint = 10000);
+    virtual void setState(State);
+    virtual void setVisible(bool visible = true);
+    virtual void setToolTip(const QString &title, const QString &subtitle);
+    virtual void showMessage(const QString &title, const QString &message, MessageIcon icon = Information, int msTimeout = 10000, uint notificationId = 0);
+    virtual void closeMessage(uint notificationId) { Q_UNUSED(notificationId) }
 
 signals:
-  void activated(QSystemTrayIcon::ActivationReason);
-  void iconChanged(const Icon &);
-  void messageClicked();
+    void activated(SystemTray::ActivationReason);
+    void iconChanged(const Icon &);
+    void animationEnabledChanged(bool);
+    void toolTipChanged(const QString &title, const QString &subtitle);
+    void messageClicked(uint notificationId);
+    void messageClosed(uint notificationId);
+
+protected slots:
+    virtual void activate(SystemTray::ActivationReason = Trigger);
 
 protected:
-  bool eventFilter(QObject *obj, QEvent *event);
+    virtual void setMode(Mode mode);
+    inline bool shouldBeVisible() const;
+
+    virtual Icon stateIcon() const;
+    Icon stateIcon(State state) const;
+    inline QString toolTipTitle() const;
+    inline QString toolTipSubTitle() const;
+    inline QMenu *trayMenu() const;
+
+    inline bool animationEnabled() const;
 
 private slots:
-  void nextPhase();
-  void on_activated(QSystemTrayIcon::ActivationReason);
+    void minimizeRestore();
+    void trayMenuAboutToShow();
+    void enableAnimationChanged(const QVariant &);
 
 private:
-  void loadAnimations();
+    Mode _mode;
+    State _state;
+    bool _shouldBeVisible;
 
-#ifdef HAVE_KDE
-  KSystemTrayIcon *_trayIcon;
-#else
-  QSystemTrayIcon *_trayIcon;
-#endif
+    QString _toolTipTitle, _toolTipSubTitle;
+    Icon _passiveIcon, _activeIcon, _needsAttentionIcon;
+    bool _animationEnabled;
 
-  QMenu *_trayMenu;
-  State _state;
-  bool _alert;
-  bool _inhibitActivation;
-
-  int _idxOffStart, _idxOffEnd, _idxOnStart, _idxOnEnd, _idxAlertStart;
-  int _currentIdx;
-  QTimer _animationTimer;
-
-  QList<QPixmap> _phases;
+    QMenu *_trayMenu;
+    QWidget *_associatedWidget;
+    Action *_minimizeRestoreAction;
 };
+
 
 // inlines
 
-bool SystemTray::isSystemTrayAvailable() const { return QSystemTrayIcon::isSystemTrayAvailable(); }
-bool SystemTray::isAlerted() const { return _alert; }
-void SystemTray::setInhibitActivation() { _inhibitActivation = true; }
+bool SystemTray::isSystemTrayAvailable() const { return false; }
+bool SystemTray::isAlerted() const { return state() == NeedsAttention; }
+SystemTray::Mode SystemTray::mode() const { return _mode; }
+SystemTray::State SystemTray::state() const { return _state; }
+bool SystemTray::shouldBeVisible() const { return _shouldBeVisible; }
+QMenu *SystemTray::trayMenu() const { return _trayMenu; }
+QString SystemTray::toolTipTitle() const { return _toolTipTitle; }
+QString SystemTray::toolTipSubTitle() const { return _toolTipSubTitle; }
+bool SystemTray::animationEnabled() const { return _animationEnabled; }
 
 #endif

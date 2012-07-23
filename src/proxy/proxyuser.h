@@ -32,6 +32,8 @@
 #include "channelinfo.h"
 //#include "mainwin.h"
 
+#include <QtCore/QPointer>
+
 
 class ConnectionManager;
 class Identity;

@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2005-09 by the Quassel Project                          *
+ *   Copyright (C) 2005-2012 by the Quassel Project                        *
  *   devel@quassel-irc.org                                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -15,7 +15,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program; if not, write to the                         *
  *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.         *
  ***************************************************************************/
 
 #ifndef COREIRCCHANNEL_H
@@ -23,20 +23,36 @@
 
 #include "ircchannel.h"
 
-class CoreIrcChannel : public IrcChannel {
-  SYNCABLE_OBJECT
-  Q_OBJECT
+#ifdef HAVE_QCA2
+#  include "cipher.h"
+#endif
+
+class CoreIrcChannel : public IrcChannel
+{
+    SYNCABLE_OBJECT
+        Q_OBJECT
 
 public:
-  CoreIrcChannel(const QString &channelname, Network *network);
+    CoreIrcChannel(const QString &channelname, Network *network);
+    virtual ~CoreIrcChannel();
 
-  inline virtual const QMetaObject *syncMetaObject() const { return &IrcChannel::staticMetaObject; }
+    inline virtual const QMetaObject *syncMetaObject() const { return &IrcChannel::staticMetaObject; }
 
-  inline bool receivedWelcomeMsg() const { return _receivedWelcomeMsg; }
-  inline void setReceivedWelcomeMsg() { _receivedWelcomeMsg = true; }
+#ifdef HAVE_QCA2
+    Cipher *cipher() const;
+    void setEncrypted(bool);
+#endif
+
+    inline bool receivedWelcomeMsg() const { return _receivedWelcomeMsg; }
+    inline void setReceivedWelcomeMsg() { _receivedWelcomeMsg = true; }
 
 private:
-  bool _receivedWelcomeMsg;
+    bool _receivedWelcomeMsg;
+
+#ifdef HAVE_QCA2
+    mutable Cipher *_cipher;
+#endif
 };
+
 
 #endif //COREIRCCHANNEL_H

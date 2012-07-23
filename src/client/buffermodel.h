@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2005-09 by the Quassel Project                          *
+ *   Copyright (C) 2005-2012 by the Quassel Project                        *
  *   devel@quassel-irc.org                                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -15,7 +15,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program; if not, write to the                         *
  *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.         *
  ***************************************************************************/
 
 #ifndef BUFFERMODEL_H
@@ -23,6 +23,7 @@
 
 #include <QSortFilterProxyModel>
 #include <QItemSelectionModel>
+#include <QPair>
 
 #include "network.h"
 #include "networkmodel.h"
@@ -31,36 +32,49 @@
 
 class QAbstractItemView;
 
-class BufferModel : public QSortFilterProxyModel {
-  Q_OBJECT
+class BufferModel : public QSortFilterProxyModel
+{
+    Q_OBJECT
 
 public:
-  BufferModel(NetworkModel *parent = 0);
+    BufferModel(NetworkModel *parent = 0);
 
-  bool filterAcceptsRow(int sourceRow, const QModelIndex &parent) const;
+    bool filterAcceptsRow(int sourceRow, const QModelIndex &parent) const;
 
-  inline const SelectionModelSynchronizer *selectionModelSynchronizer() const { return &_selectionModelSynchronizer; }
-  inline QItemSelectionModel *standardSelectionModel() const { return _selectionModelSynchronizer.selectionModel(); }
+    inline const SelectionModelSynchronizer *selectionModelSynchronizer() const { return &_selectionModelSynchronizer; }
+    inline QItemSelectionModel *standardSelectionModel() const { return _selectionModelSynchronizer.selectionModel(); }
 
-  inline void synchronizeSelectionModel(QItemSelectionModel *selectionModel) { _selectionModelSynchronizer.synchronizeSelectionModel(selectionModel); }
-  void synchronizeView(QAbstractItemView *view);
+    inline void synchronizeSelectionModel(QItemSelectionModel *selectionModel) { _selectionModelSynchronizer.synchronizeSelectionModel(selectionModel); }
+    void synchronizeView(QAbstractItemView *view);
 
-  inline QModelIndex currentIndex() { return standardSelectionModel()->currentIndex(); }
-  inline BufferId currentBuffer() { return currentIndex().data(NetworkModel::BufferIdRole).value<BufferId>(); }
+    inline QModelIndex currentIndex() { return standardSelectionModel()->currentIndex(); }
+    inline BufferId currentBuffer() { return currentIndex().data(NetworkModel::BufferIdRole).value<BufferId>(); }
 
 public slots:
-  void setCurrentIndex(const QModelIndex &newCurrent);
-  void switchToBuffer(const BufferId &bufferId);
-  void switchToBufferIndex(const QModelIndex &bufferIdx);
-  void switchToOrJoinBuffer(NetworkId network, const QString &bufferName);
+    void setCurrentIndex(const QModelIndex &newCurrent);
+    void switchToBuffer(const BufferId &bufferId);
+    void switchToBufferIndex(const QModelIndex &bufferIdx);
+    void switchToOrJoinBuffer(NetworkId network, const QString &bufferName, bool isQuery = false);
+    void switchToOrStartQuery(NetworkId network, const QString &nick)
+    {
+        switchToOrJoinBuffer(network, nick, true);
+    }
+
+
+    void switchToBufferAfterCreation(NetworkId network, const QString &name);
 
 private slots:
-  void debug_currentChanged(QModelIndex current, QModelIndex previous);
-  void newNetwork(NetworkId id);
-  void networkConnectionChanged(Network::ConnectionState state);
+    void debug_currentChanged(QModelIndex current, QModelIndex previous);
+    void newNetwork(NetworkId id);
+    void networkConnectionChanged(Network::ConnectionState state);
+    void newBuffers(const QModelIndex &parent, int start, int end);
 
 private:
-  SelectionModelSynchronizer _selectionModelSynchronizer;
+    void newBuffer(BufferId bufferId);
+
+    SelectionModelSynchronizer _selectionModelSynchronizer;
+    QPair<NetworkId, QString> _bufferToSwitchTo;
 };
+
 
 #endif // BUFFERMODEL_H

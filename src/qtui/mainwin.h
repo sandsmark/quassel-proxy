@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2005-09 by the Quassel Project                          *
+ *   Copyright (C) 2005-2012 by the Quassel Project                        *
  *   devel@quassel-irc.org                                                 *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -15,7 +15,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program; if not, write to the                         *
  *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.         *
  ***************************************************************************/
 
 #ifndef MAINWIN_H_
@@ -26,12 +26,6 @@
 #else
 #  include <QMainWindow>
 #endif
-
-#ifdef Q_WS_WIN
-#  include <windows.h>
-#endif
-
-#include <QSystemTrayIcon>
 
 #include "qtui.h"
 #include "titlesetter.h"
@@ -50,6 +44,8 @@ class InputWidget;
 class MsgProcessorStatusWidget;
 class NickListWidget;
 class SystemTray;
+class ChatMonitorView;
+class TopicWidget;
 
 class QMenu;
 class QLabel;
@@ -60,13 +56,14 @@ class KHelpMenu;
 //!\brief The main window of Quassel's QtUi.
 class MainWin
 #ifdef HAVE_KDE
-: public KMainWindow {
+    : public KMainWindow
+{
 #else
 : public QMainWindow {
 #endif
-  Q_OBJECT
+    Q_OBJECT
 
-  public:
+public:
     MainWin(QWidget *parent = 0);
     virtual ~MainWin();
 
@@ -74,10 +71,10 @@ class MainWin
 
     void addBufferView(ClientBufferViewConfig *config);
     BufferView *allBuffersView() const;
+    BufferView *activeBufferView() const;
 
-    BufferWidget *bufferWidget() const { return _bufferWidget; }
-
-    inline SystemTray *systemTray() const;
+    inline BufferWidget *bufferWidget() const { return _bufferWidget; }
+    inline SystemTray *systemTray() const { return _systemTray; }
 
     bool event(QEvent *event);
 
@@ -87,30 +84,29 @@ class MainWin
     void saveStateToSettings(UiSettings &);
     void restoreStateFromSettings(UiSettings &);
 
-  public slots:
+public slots:
     void showStatusBarMessage(const QString &message);
-
-    void toggleMinimizedToTray();
-
-    //! Bring window to front and focus it
-    void forceActivated();
+    void hideCurrentBuffer();
+    void nextBufferView();     //!< Activate the next bufferview
+    void previousBufferView(); //!< Activate the previous bufferview
+    void nextBuffer();
+    void previousBuffer();
 
     //! Quit application
     void quit();
 
-  protected:
+protected:
     void closeEvent(QCloseEvent *event);
-    void changeEvent(QEvent *event);
     void moveEvent(QMoveEvent *event);
     void resizeEvent(QResizeEvent *event);
 
-  protected slots:
+protected slots:
     void connectedToCore();
     void setConnectedState();
     void disconnectedFromCore();
     void setDisconnectedState();
 
-  private slots:
+private slots:
     void addBufferView(int bufferViewConfigId);
     void awayLogDestroyed();
     void removeBufferView(int bufferViewConfigId);
@@ -125,9 +121,9 @@ class MainWin
     void showSettingsDlg();
     void showNotificationsDlg();
     void showIgnoreList(QString newRule = QString());
-#ifdef HAVE_KDE
     void showShortcutsDlg();
-#endif
+    void toggleFullscreen();
+
     void handleCoreConnectionError(const QString &errorMsg);
     void userAuthenticationRequired(CoreAccount *, bool *valid, const QString &errorMessage);
     void handleNoSslInClient(bool *accepted);
@@ -146,6 +142,9 @@ class MainWin
     void on_actionDebugHotList_triggered();
     void on_actionDebugLog_triggered();
 
+    void bindJumpKey();
+    void onJumpKey();
+
     void clientNetworkCreated(NetworkId);
     void clientNetworkRemoved(NetworkId);
     void clientNetworkUpdated();
@@ -158,18 +157,22 @@ class MainWin
     void saveLayout();
 
     void bufferViewToggled(bool enabled);
+    void bufferViewVisibilityChanged(bool visible);
+    void changeActiveBufferView(bool backwards);
+    void changeActiveBufferView(int bufferViewId);
 
-  signals:
+signals:
     void connectToCore(const QVariantMap &connInfo);
     void disconnectFromCore();
 
-  private:
+private:
 #ifdef HAVE_KDE
     KHelpMenu *_kHelpMenu;
 #endif
 
     MsgProcessorStatusWidget *_msgProcessorStatusWidget;
     CoreConnectionStatusWidget *_coreConnectionStatusWidget;
+    SystemTray *_systemTray;
 
     TitleSetter _titleSetter;
 
@@ -180,6 +183,7 @@ class MainWin
     void setupChatMonitor();
     void setupInputWidget();
     void setupTopicWidget();
+    void setupViewMenuTail();
     void setupStatusBar();
     void setupSystray();
     void setupTitleSetter();
@@ -189,14 +193,12 @@ class MainWin
     void updateIcon();
     void enableMenus();
 
-    void hideToTray();
-
-    SystemTray *_systemTray;
-
     QList<BufferViewDock *> _bufferViews;
     BufferWidget *_bufferWidget;
     NickListWidget *_nickListWidget;
     InputWidget *_inputWidget;
+    ChatMonitorView *_chatMonitorView;
+    TopicWidget *_topicWidget;
 
     QMenu *_fileMenu, *_networksMenu, *_viewMenu, *_bufferViewsMenu, *_settingsMenu, *_helpMenu, *_helpDebugMenu;
     QMenu *_toolbarMenu;
@@ -209,17 +211,12 @@ class MainWin
     QSize _normalSize; //!< Size of the non-maximized window
     QPoint _normalPos; //!< Position of the non-maximized window
 
-#ifdef Q_WS_WIN
-    DWORD dwTickCount;
-#endif
-
     BufferHotListFilter *_bufferHotList;
+    QHash<int, BufferId> _jumpKeyMap;
+    int _activeBufferViewIndex;
 
     friend class QtUi;
 };
 
-SystemTray *MainWin::systemTray() const {
-  return _systemTray;
-}
 
 #endif

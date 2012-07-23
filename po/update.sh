@@ -6,14 +6,5 @@ if [ ! $# -eq 1 ]; then
   exit 1
 fi
 
-CONV=lconvert
-BASE=quassel_$1
-PO=$BASE.po
-TS=$BASE.ts
-
-$CONV -i $PO -o $TS   &&
-  lupdate -no-obsolete ../src -ts $TS &&
-  $CONV -i $TS -o $PO
-
-# remove cruft
-rm ${TS}
+msgmerge --no-wrap --width 1 -U $1.po quassel.pot
+[ $? -ne 0 ] && echo "Something went wrong"
